@@ -94,6 +94,7 @@
 <div class="topbar">
   <div class="brand"><div class="mark">ИИ<span>гра</span></div></div>
   <div class="progress-wrap" id="progressWrap" hidden>
+    <span class="progress-label" id="variantLabel"></span>
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     <span class="progress-label" id="progressLabel">0/25</span>
   </div>
@@ -153,6 +154,7 @@
   var progressWrap = document.getElementById("progressWrap");
   var progressFill = document.getElementById("progressFill");
   var progressLabel = document.getElementById("progressLabel");
+  var variantLabel = document.getElementById("variantLabel");
   var meBox = document.getElementById("meBox");
   var meName = document.getElementById("meName");
   var meScore = document.getElementById("meScore");
@@ -185,6 +187,10 @@
       if(!r.ok) return r.json().then(function(e){ throw e; });
       return r.json();
     });
+  }
+
+  function setVariant(v){
+    if(v) variantLabel.textContent = "Вариант " + v;
   }
 
   function showScreen(name){
@@ -285,7 +291,8 @@
   function finishGame(){
     api("/api/solo/finish", {attempt_id: attemptId}).then(function(res){
       veil.hidden = true;
-      finishScoreLine.textContent = res.name + ", ваш результат: " + res.score + " очков";
+      setVariant(res.variant);
+      finishScoreLine.textContent = res.name + ", ваш результат: " + res.score + " очков · вариант " + res.variant;
       codeBox.textContent = res.code;
       showScreen("finish");
     }).catch(function(){ /* not complete yet — stay on board */ });
@@ -313,6 +320,7 @@
       total = res.total;
       localStorage.setItem(LS_ATTEMPT, attemptId);
       meName.textContent = res.name;
+      setVariant(res.variant);
       renderProgress(0, 0);
       renderBoard();
       showScreen("board");
@@ -334,12 +342,13 @@
       }).then(function(st){
         total = st.total;
         meName.textContent = st.name;
+        setVariant(st.variant);
         Object.keys(st.used).forEach(function(key){
           usedMap[key] = st.used[key] ? "correct" : "wrong";
         });
         renderProgress(Object.keys(st.used).length, st.score);
         if(st.completed){
-          finishScoreLine.textContent = st.name + ", ваш результат: " + st.score + " очков";
+          finishScoreLine.textContent = st.name + ", ваш результат: " + st.score + " очков · вариант " + st.variant;
           codeBox.textContent = st.code;
           showScreen("finish");
         } else {

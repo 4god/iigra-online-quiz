@@ -21,9 +21,11 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from questions import BOARD, QUESTION_SECONDS as DEFAULT_QUESTION_SECONDS
+from questions import SETS, QUESTION_SECONDS as DEFAULT_QUESTION_SECONDS
 
 QUESTION_SECONDS = int(os.environ.get("QUESTION_SECONDS", DEFAULT_QUESTION_SECONDS))
+LIVE_VARIANT = int(os.environ.get("LIVE_VARIANT", 1))  # 1..len(SETS), which variant the broadcast plays
+BOARD = SETS[LIVE_VARIANT - 1]
 
 BASE_DIR = Path(__file__).parent
 STATE_FILE = BASE_DIR / "game_state.json"
@@ -83,8 +85,8 @@ def leaderboard(limit=15):
     return rows[:limit]
 
 
-def question_data(ci, li):
-    cat = BOARD[ci]
+def question_data(ci, li, board=None):
+    cat = (board or BOARD)[ci]
     q = cat["questions"][li]
     return cat, q
 
@@ -375,10 +377,20 @@ def get_attempt(attempt_id: str):
     return attempt
 
 
+def attempt_board(a):
+    return SETS[a.get("set", 0)]
+
+
+def check_tile(ci: int, li: int):
+    if not (0 <= ci < len(BOARD)) or not (0 <= li < len(BOARD[0]["questions"])):
+        raise HTTPException(400, "bad tile")
+
+
 @app.post("/api/solo/start")
 def solo_start(body: SoloStartBody):
     name = (body.name or "Игрок").strip()[:24] or "Игрок"
     attempt_id = uuid.uuid4().hex
+    variant = secrets.randbelow(len(SETS))
     solo_db["attempts"][attempt_id] = {
         "name": name,
         "answers": {},
@@ -386,9 +398,10 @@ def solo_start(body: SoloStartBody):
         "started_at": time.time(),
         "code": None,
         "completed_at": None,
+        "set": variant,
     }
     persist_solo()
-    return {"attempt_id": attempt_id, "name": name, "total": TOTAL_QUESTIONS}
+    return {"attempt_id": attempt_id, "name": name, "total": TOTAL_QUESTIONS, "variant": variant + 1}
 
 
 @app.get("/api/solo/status")
@@ -401,15 +414,15 @@ def solo_status(attempt_id: str):
         "total": TOTAL_QUESTIONS,
         "completed": a["code"] is not None,
         "code": a["code"],
+        "variant": a.get("set", 0) + 1,
     }
 
 
 @app.post("/api/solo/open")
 def solo_open(body: SoloOpenBody):
     a = get_attempt(body.attempt_id)
-    if not (0 <= body.ci < len(BOARD)) or not (0 <= body.li < len(BOARD[0]["questions"])):
-        raise HTTPException(400, "bad tile")
-    cat, q = question_data(body.ci, body.li)
+    check_tile(body.ci, body.li)
+    cat, q = question_data(body.ci, body.li, attempt_board(a))
     key = f"{body.ci}-{body.li}"
     prior = a["answers"].get(key)
     payload = {
@@ -433,9 +446,8 @@ def solo_open(body: SoloOpenBody):
 @app.post("/api/solo/answer")
 def solo_answer(body: SoloAnswerBody):
     a = get_attempt(body.attempt_id)
-    if not (0 <= body.ci < len(BOARD)) or not (0 <= body.li < len(BOARD[0]["questions"])):
-        raise HTTPException(400, "bad tile")
-    cat, q = question_data(body.ci, body.li)
+    check_tile(body.ci, body.li)
+    cat, q = question_data(body.ci, body.li, attempt_board(a))
     key = f"{body.ci}-{body.li}"
 
     existing = a["answers"].get(key)
@@ -469,8 +481,10 @@ def solo_answer(body: SoloAnswerBody):
 @app.post("/api/solo/finish")
 def solo_finish(body: SoloFinishBody):
     a = get_attempt(body.attempt_id)
+    variant = a.get("set", 0) + 1
     if a["code"]:
-        return {"code": a["code"], "score": a["score"], "name": a["name"], "completed_at": a["completed_at"]}
+        return {"code": a["code"], "score": a["score"], "name": a["name"],
+                "completed_at": a["completed_at"], "variant": variant}
 
     if len(a["answers"]) < TOTAL_QUESTIONS:
         raise HTTPException(409, f"not complete: {len(a['answers'])}/{TOTAL_QUESTIONS}")
@@ -483,10 +497,11 @@ def solo_finish(body: SoloFinishBody):
         "name": a["name"],
         "score": a["score"],
         "completed_at": completed_at,
+        "variant": variant,
     }
     persist_solo()
 
-    return {"code": code, "score": a["score"], "name": a["name"], "completed_at": completed_at}
+    return {"code": code, "score": a["score"], "name": a["name"], "completed_at": completed_at, "variant": variant}
 
 
 @app.post("/api/verify")
