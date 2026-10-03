@@ -16,9 +16,10 @@ import uuid
 from pathlib import Path
 
 import qrcode
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from questions import BOARD, QUESTION_SECONDS as DEFAULT_QUESTION_SECONDS
 
@@ -295,6 +296,209 @@ async def reset_game():
     })
 
 
+# ---------------------------------------------------------------- solo mode
+#
+# Self-paced, single-player version for anyone to play after the broadcast:
+# no timer pressure, scoring is still checked server-side so a finished run
+# is trustworthy, and completing all 25 questions mints a short code that
+# staff can look up later (via /verify) to confirm someone played it through.
+
+SOLO_FILE = BASE_DIR / "solo_state.json"
+TOTAL_QUESTIONS = sum(len(c["questions"]) for c in BOARD)
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I — easier to read aloud
+
+
+def fresh_solo():
+    return {"attempts": {}, "completions": {}}
+
+
+def load_solo():
+    if SOLO_FILE.exists():
+        try:
+            with open(SOLO_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "attempts" in data and "completions" in data:
+                return data
+        except Exception:
+            pass
+    return fresh_solo()
+
+
+solo_db = load_solo()
+
+
+def persist_solo():
+    try:
+        with open(SOLO_FILE, "w", encoding="utf-8") as f:
+            json.dump(solo_db, f, ensure_ascii=False)
+    except Exception as e:
+        print("persist_solo failed:", e)
+
+
+def gen_code():
+    while True:
+        code = "-".join("".join(secrets.choice(CODE_ALPHABET) for _ in range(4)) for _ in range(2))
+        if code not in solo_db["completions"]:
+            return code
+
+
+class SoloStartBody(BaseModel):
+    name: str
+
+
+class SoloOpenBody(BaseModel):
+    attempt_id: str
+    ci: int
+    li: int
+
+
+class SoloAnswerBody(BaseModel):
+    attempt_id: str
+    ci: int
+    li: int
+    option: int
+
+
+class SoloFinishBody(BaseModel):
+    attempt_id: str
+
+
+class VerifyBody(BaseModel):
+    key: str
+    code: str
+
+
+def get_attempt(attempt_id: str):
+    attempt = solo_db["attempts"].get(attempt_id)
+    if not attempt:
+        raise HTTPException(404, "attempt not found")
+    return attempt
+
+
+@app.post("/api/solo/start")
+def solo_start(body: SoloStartBody):
+    name = (body.name or "Игрок").strip()[:24] or "Игрок"
+    attempt_id = uuid.uuid4().hex
+    solo_db["attempts"][attempt_id] = {
+        "name": name,
+        "answers": {},
+        "score": 0,
+        "started_at": time.time(),
+        "code": None,
+        "completed_at": None,
+    }
+    persist_solo()
+    return {"attempt_id": attempt_id, "name": name, "total": TOTAL_QUESTIONS}
+
+
+@app.get("/api/solo/status")
+def solo_status(attempt_id: str):
+    a = get_attempt(attempt_id)
+    return {
+        "name": a["name"],
+        "score": a["score"],
+        "used": {k: v["correct"] for k, v in a["answers"].items()},
+        "total": TOTAL_QUESTIONS,
+        "completed": a["code"] is not None,
+        "code": a["code"],
+    }
+
+
+@app.post("/api/solo/open")
+def solo_open(body: SoloOpenBody):
+    a = get_attempt(body.attempt_id)
+    if not (0 <= body.ci < len(BOARD)) or not (0 <= body.li < len(BOARD[0]["questions"])):
+        raise HTTPException(400, "bad tile")
+    cat, q = question_data(body.ci, body.li)
+    key = f"{body.ci}-{body.li}"
+    prior = a["answers"].get(key)
+    payload = {
+        "category": cat["name"],
+        "points": q["points"],
+        "q": q["q"],
+        "options": q["options"],
+    }
+    if prior:
+        payload.update({
+            "already_answered": True,
+            "chosen": prior["option"],
+            "correct": prior["correct"],
+            "correct_option": q["correct"],
+        })
+    else:
+        payload["already_answered"] = False
+    return payload
+
+
+@app.post("/api/solo/answer")
+def solo_answer(body: SoloAnswerBody):
+    a = get_attempt(body.attempt_id)
+    if not (0 <= body.ci < len(BOARD)) or not (0 <= body.li < len(BOARD[0]["questions"])):
+        raise HTTPException(400, "bad tile")
+    cat, q = question_data(body.ci, body.li)
+    key = f"{body.ci}-{body.li}"
+
+    existing = a["answers"].get(key)
+    if existing:
+        return {
+            "correct": existing["correct"],
+            "correct_option": q["correct"],
+            "score": a["score"],
+            "answered_count": len(a["answers"]),
+            "total": TOTAL_QUESTIONS,
+        }
+
+    if not (0 <= body.option <= 3):
+        raise HTTPException(400, "bad option")
+
+    is_correct = body.option == q["correct"]
+    a["answers"][key] = {"option": body.option, "correct": is_correct}
+    if is_correct:
+        a["score"] += q["points"]
+    persist_solo()
+
+    return {
+        "correct": is_correct,
+        "correct_option": q["correct"],
+        "score": a["score"],
+        "answered_count": len(a["answers"]),
+        "total": TOTAL_QUESTIONS,
+    }
+
+
+@app.post("/api/solo/finish")
+def solo_finish(body: SoloFinishBody):
+    a = get_attempt(body.attempt_id)
+    if a["code"]:
+        return {"code": a["code"], "score": a["score"], "name": a["name"], "completed_at": a["completed_at"]}
+
+    if len(a["answers"]) < TOTAL_QUESTIONS:
+        raise HTTPException(409, f"not complete: {len(a['answers'])}/{TOTAL_QUESTIONS}")
+
+    code = gen_code()
+    completed_at = time.time()
+    a["code"] = code
+    a["completed_at"] = completed_at
+    solo_db["completions"][code] = {
+        "name": a["name"],
+        "score": a["score"],
+        "completed_at": completed_at,
+    }
+    persist_solo()
+
+    return {"code": code, "score": a["score"], "name": a["name"], "completed_at": completed_at}
+
+
+@app.post("/api/verify")
+def verify_code(body: VerifyBody):
+    if body.key != HOST_KEY:
+        raise HTTPException(403, "bad key")
+    record = solo_db["completions"].get(body.code.strip().upper())
+    if not record:
+        return {"valid": False}
+    return {"valid": True, **record}
+
+
 # ---------------------------------------------------------------- websocket
 
 @app.websocket("/ws")
@@ -393,6 +597,16 @@ def qr_code(data: str):
 @app.get("/host")
 def host_page():
     return FileResponse(BASE_DIR / "public" / "host.html")
+
+
+@app.get("/solo")
+def solo_page():
+    return FileResponse(BASE_DIR / "public" / "solo.html")
+
+
+@app.get("/verify")
+def verify_page():
+    return FileResponse(BASE_DIR / "public" / "verify.html")
 
 
 @app.get("/")

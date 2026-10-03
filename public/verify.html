@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ИИгра — проверка кода</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body{display:flex;flex-direction:column;}
+  main{flex:1;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .wrap{width:min(420px,100%);display:flex;flex-direction:column;gap:14px;}
+  .wrap h1{font-family:"Unbounded",sans-serif;font-size:18px;margin:0 0 4px;text-align:center;}
+  .wrap .sub{color:var(--ink-faint);font-size:13px;text-align:center;margin:0 0 10px;}
+  input{
+    background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:12px;
+    padding:13px 15px;font-size:15px;
+  }
+  #codeInput{font-family:"JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:.08em;text-align:center;}
+  .result{
+    border-radius:14px;padding:16px 18px;font-size:14px;display:none;
+  }
+  .result.ok{background:rgba(57,242,164,.1);border:1px solid rgba(57,242,164,.35);}
+  .result.bad{background:rgba(255,93,108,.1);border:1px solid rgba(255,93,108,.35);}
+  .result .line{margin:3px 0;}
+  .result b{color:var(--ink);}
+  [hidden]{display:none!important;}
+</style>
+</head>
+<body>
+<main>
+  <form class="wrap card" id="form">
+    <h1>Проверка кода прохождения</h1>
+    <p class="sub">Только для организаторов — нужен ключ ведущего</p>
+    <input id="keyInput" type="password" placeholder="Ключ ведущего" autocomplete="off" required>
+    <input id="codeInput" placeholder="КОД-ИГРОКА" autocomplete="off" required>
+    <button class="btn primary" type="submit">Проверить</button>
+    <div class="result" id="result"></div>
+  </form>
+</main>
+<script>
+(function(){
+  "use strict";
+  var form = document.getElementById("form");
+  var result = document.getElementById("result");
+
+  form.addEventListener("submit", function(e){
+    e.preventDefault();
+    var key = document.getElementById("keyInput").value.trim();
+    var code = document.getElementById("codeInput").value.trim();
+    result.style.display = "none";
+
+    fetch("/api/verify", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({key: key, code: code})
+    }).then(function(r){
+      if(r.status === 403){ throw {forbidden:true}; }
+      return r.json();
+    }).then(function(data){
+      if(data.valid){
+        var dt = new Date(data.completed_at * 1000);
+        result.className = "result ok";
+        result.innerHTML =
+          '<div class="line">✅ <b>Код действителен</b></div>' +
+          '<div class="line">Имя: <b>'+escapeHtml(data.name)+'</b></div>' +
+          '<div class="line">Результат: <b>'+data.score+' очков</b></div>' +
+          '<div class="line">Пройдено: <b>'+dt.toLocaleString("ru-RU")+'</b></div>';
+      } else {
+        result.className = "result bad";
+        result.innerHTML = '<div class="line">❌ Такой код не найден</div>';
+      }
+      result.style.display = "block";
+    }).catch(function(err){
+      result.className = "result bad";
+      result.innerHTML = '<div class="line">❌ ' + (err && err.forbidden ? "Неверный ключ ведущего" : "Ошибка проверки") + '</div>';
+      result.style.display = "block";
+    });
+  });
+
+  function escapeHtml(s){
+    return String(s).replace(/[<>&]/g, function(c){ return {"<":"&lt;",">":"&gt;","&":"&amp;"}[c]; });
+  }
+})();
+</script>
+</body>
+</html>

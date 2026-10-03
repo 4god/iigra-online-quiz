@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ИИгра — пройти самому</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body{display:flex;flex-direction:column;}
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 18px;border-bottom:1px solid var(--card-edge);gap:12px;flex-wrap:wrap;
+  }
+  .progress-wrap{display:flex;align-items:center;gap:10px;flex:1;max-width:260px;}
+  .progress-track{
+    flex:1;height:8px;border-radius:999px;background:var(--bg-deep);
+    overflow:hidden;border:1px solid var(--card-edge);
+  }
+  .progress-fill{height:100%;background:var(--mint);width:0%;transition:width .3s;}
+  .progress-label{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--ink-dim);white-space:nowrap;}
+  .me{
+    display:flex;align-items:center;gap:8px;
+    background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:999px;
+    padding:7px 14px;font-weight:700;font-size:13px;
+  }
+  .me .score{font-family:"JetBrains Mono",monospace;color:var(--mint);font-variant-numeric:tabular-nums;}
+
+  main{flex:1;padding:18px;display:flex;flex-direction:column;}
+
+  .join-form{display:flex;flex-direction:column;gap:16px;width:min(360px,100%);text-align:center;margin:auto;}
+  .join-form input{
+    background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:12px;
+    padding:14px 16px;font-size:16px;text-align:center;
+  }
+  .join-form p{color:var(--ink-dim);font-size:13px;margin:0;}
+
+  .board-wrap{flex:1;display:flex;max-width:980px;margin:0 auto;width:100%;}
+  .board{flex:1;display:grid;grid-template-columns:repeat(5,1fr);grid-auto-rows:minmax(44px,1fr);gap:7px;}
+  .cat-head{
+    background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:10px;
+    display:flex;align-items:center;justify-content:center;text-align:center;padding:8px 6px;
+    font-family:"Unbounded",sans-serif;font-weight:700;font-size:clamp(9px,1.3vw,13px);line-height:1.2;
+  }
+  .tile{
+    background:var(--tile);border:1px solid rgba(255,255,255,.14);border-radius:10px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:"JetBrains Mono",monospace;font-weight:700;font-size:clamp(14px,2.6vw,24px);
+    color:#fef9ff;cursor:pointer;
+  }
+  .tile:hover{background:var(--tile-hi);}
+  .tile.done-correct{background:rgba(57,242,164,.16);border-color:var(--mint);color:var(--mint);}
+  .tile.done-wrong{background:rgba(255,93,108,.14);border-color:var(--bad);color:var(--bad);}
+
+  .veil{
+    position:fixed;inset:0;background:rgba(4,5,12,.84);backdrop-filter:blur(6px);
+    display:flex;align-items:center;justify-content:center;padding:24px;z-index:50;
+  }
+  .stage-card{width:min(600px,100%);}
+  .pills{display:flex;gap:10px;margin-bottom:18px;}
+  .q-text{font-family:"Unbounded",sans-serif;font-weight:600;font-size:clamp(18px,3.4vw,24px);line-height:1.3;margin:0 0 20px;text-wrap:balance;}
+  .options{display:grid;gap:10px;margin-bottom:14px;}
+  .opt-btn{
+    text-align:left;background:var(--tile);border:1px solid rgba(255,255,255,.14);border-radius:12px;
+    padding:15px 17px;font-weight:700;font-size:15px;color:#fef9ff;cursor:pointer;display:flex;gap:12px;align-items:center;
+  }
+  .opt-btn .letter{
+    font-family:"JetBrains Mono",monospace;background:rgba(255,255,255,.15);border-radius:8px;
+    width:26px;height:26px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;
+  }
+  .opt-btn:hover:not(:disabled){background:var(--tile-hi);}
+  .opt-btn:disabled{cursor:default;}
+  .opt-btn.correct{background:var(--mint);color:#042417;}
+  .opt-btn.wrong{background:var(--bad);color:#2b0506;}
+  .status-line{text-align:center;font-weight:700;margin-bottom:14px;min-height:20px;}
+  .status-line.good{color:var(--mint);}
+  .status-line.bad{color:var(--bad);}
+  .close-row{text-align:center;}
+
+  .finish-wrap{text-align:center;max-width:460px;margin:auto;}
+  .finish-wrap .big{font-family:"Unbounded",sans-serif;font-weight:800;font-size:clamp(24px,5vw,32px);color:var(--mint);margin-bottom:8px;}
+  .finish-wrap .score-line{color:var(--ink-dim);margin-bottom:22px;}
+  .code-box{
+    font-family:"JetBrains Mono",monospace;font-weight:700;font-size:clamp(22px,5vw,30px);
+    letter-spacing:.08em;background:var(--bg-deep);border:1px solid rgba(57,242,164,.35);
+    border-radius:14px;padding:18px;color:var(--mint);margin-bottom:12px;
+  }
+  .finish-wrap .hint{color:var(--ink-faint);font-size:13px;margin-bottom:20px;}
+
+  [hidden]{display:none!important;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><div class="mark">ИИ<span>гра</span></div></div>
+  <div class="progress-wrap" id="progressWrap" hidden>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <span class="progress-label" id="progressLabel">0/25</span>
+  </div>
+  <div class="me" id="meBox" hidden>
+    <span id="meName">—</span>
+    <span class="score" id="meScore">0</span>
+  </div>
+</div>
+
+<main>
+
+  <form class="join-form card" id="joinScreen">
+    <div style="font-family:'Unbounded',sans-serif;font-weight:700;font-size:18px;">Пройти «ИИгру» самому</div>
+    <p>25 вопросов про ИИ в своём темпе, без таймера. В конце — личный код, которым можно подтвердить, что вы прошли игру.</p>
+    <input id="nameInput" maxlength="24" placeholder="Ваше имя" autocomplete="off" required>
+    <button class="btn primary" type="submit">Начать</button>
+  </form>
+
+  <div class="board-wrap" id="boardScreen" hidden>
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="finish-wrap card" id="finishScreen" hidden>
+    <div class="big">Игра пройдена!</div>
+    <div class="score-line" id="finishScoreLine"></div>
+    <div class="code-box" id="codeBox"></div>
+    <div class="hint">Сохраните или сфотографируйте этот код — он подтверждает, что вы прошли игру.</div>
+    <button class="btn primary" id="copyBtn" type="button">Скопировать код</button>
+  </div>
+
+</main>
+
+<div class="veil" id="veil" hidden>
+  <div class="stage-card card">
+    <div class="pills">
+      <span class="pill cat" id="pillCat"></span>
+      <span class="pill pts" id="pillPts"></span>
+    </div>
+    <p class="q-text" id="qText"></p>
+    <div class="options" id="qOptions"></div>
+    <div class="status-line" id="qStatus"></div>
+    <div class="close-row"><button class="btn ghost" id="closeBtn" type="button">Закрыть</button></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var LS_ATTEMPT = "iigra-solo-attempt-id";
+  var LS_NAME = "iigra-solo-name";
+
+  var joinScreen = document.getElementById("joinScreen");
+  var boardScreen = document.getElementById("boardScreen");
+  var finishScreen = document.getElementById("finishScreen");
+  var boardEl = document.getElementById("board");
+  var progressWrap = document.getElementById("progressWrap");
+  var progressFill = document.getElementById("progressFill");
+  var progressLabel = document.getElementById("progressLabel");
+  var meBox = document.getElementById("meBox");
+  var meName = document.getElementById("meName");
+  var meScore = document.getElementById("meScore");
+
+  var veil = document.getElementById("veil");
+  var pillCat = document.getElementById("pillCat");
+  var pillPts = document.getElementById("pillPts");
+  var qText = document.getElementById("qText");
+  var qOptions = document.getElementById("qOptions");
+  var qStatus = document.getElementById("qStatus");
+  var closeBtn = document.getElementById("closeBtn");
+
+  var finishScoreLine = document.getElementById("finishScoreLine");
+  var codeBox = document.getElementById("codeBox");
+  var copyBtn = document.getElementById("copyBtn");
+
+  var categories = [];
+  var pointValues = [100,200,300,400,500];
+  var attemptId = localStorage.getItem(LS_ATTEMPT) || null;
+  var total = 25;
+  var usedMap = {};
+  var currentTile = null; // {ci, li}
+
+  function api(path, body){
+    return fetch(path, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(body || {})
+    }).then(function(r){
+      if(!r.ok) return r.json().then(function(e){ throw e; });
+      return r.json();
+    });
+  }
+
+  function showScreen(name){
+    joinScreen.hidden = (name !== "join");
+    boardScreen.hidden = (name !== "board");
+    finishScreen.hidden = (name !== "finish");
+  }
+
+  function renderProgress(answeredCount, score){
+    progressWrap.hidden = false;
+    meBox.hidden = false;
+    meScore.textContent = score;
+    progressLabel.textContent = answeredCount + "/" + total;
+    progressFill.style.width = (total ? (answeredCount/total*100) : 0) + "%";
+  }
+
+  function renderBoard(){
+    boardEl.innerHTML = "";
+    categories.forEach(function(name){
+      var h = document.createElement("div");
+      h.className = "cat-head";
+      h.textContent = name;
+      boardEl.appendChild(h);
+    });
+    for(let li=0; li<5; li++){
+      categories.forEach(function(name, ci){
+        var key = ci + "-" + li;
+        var btn = document.createElement("button");
+        btn.className = "tile";
+        btn.type = "button";
+        btn.textContent = pointValues[li];
+        if(usedMap[key]){
+          btn.classList.add(usedMap[key] === "correct" ? "done-correct" : "done-wrong");
+        }
+        btn.addEventListener("click", function(){ openTile(ci, li); });
+        boardEl.appendChild(btn);
+      });
+    }
+  }
+
+  function openTile(ci, li){
+    currentTile = {ci:ci, li:li};
+    api("/api/solo/open", {attempt_id: attemptId, ci: ci, li: li}).then(function(data){
+      pillCat.textContent = data.category;
+      pillPts.textContent = data.points + " очков";
+      qText.textContent = data.q;
+      qStatus.textContent = "";
+      qStatus.className = "status-line";
+      qOptions.innerHTML = "";
+      var letters = ["А","Б","В","Г"];
+
+      data.options.forEach(function(opt, idx){
+        var b = document.createElement("button");
+        b.className = "opt-btn";
+        b.type = "button";
+        b.innerHTML = '<span class="letter">'+letters[idx]+'</span><span></span>';
+        b.querySelector("span:last-child").textContent = opt;
+        qOptions.appendChild(b);
+
+        if(data.already_answered){
+          b.disabled = true;
+          if(idx === data.correct_option) b.classList.add("correct");
+          else if(idx === data.chosen) b.classList.add("wrong");
+        } else {
+          b.addEventListener("click", function(){ submitAnswer(ci, li, idx); });
+        }
+      });
+
+      if(data.already_answered){
+        qStatus.textContent = data.correct ? "Вы ответили верно" : "В прошлый раз был другой ответ";
+        qStatus.classList.add(data.correct ? "good" : "bad");
+      }
+
+      veil.hidden = false;
+    }).catch(function(){ alert("Не удалось открыть вопрос. Проверьте соединение и попробуйте ещё раз."); });
+  }
+
+  function submitAnswer(ci, li, option){
+    Array.prototype.forEach.call(qOptions.children, function(el){ el.disabled = true; });
+    api("/api/solo/answer", {attempt_id: attemptId, ci: ci, li: li, option: option}).then(function(res){
+      Array.prototype.forEach.call(qOptions.children, function(el, idx){
+        if(idx === res.correct_option) el.classList.add("correct");
+        else if(idx === option && !res.correct) el.classList.add("wrong");
+      });
+      qStatus.textContent = res.correct ? ("Верно! +" + pillPts.textContent.replace(" очков","") + " очков") : "Увы, неверно";
+      qStatus.classList.add(res.correct ? "good" : "bad");
+
+      usedMap[ci+"-"+li] = res.correct ? "correct" : "wrong";
+      renderBoard();
+      renderProgress(res.answered_count, res.score);
+
+      if(res.answered_count >= res.total){
+        setTimeout(function(){ finishGame(); }, 400);
+      }
+    }).catch(function(){ qStatus.textContent = "Ошибка отправки ответа, попробуйте ещё раз."; });
+  }
+
+  function finishGame(){
+    api("/api/solo/finish", {attempt_id: attemptId}).then(function(res){
+      veil.hidden = true;
+      finishScoreLine.textContent = res.name + ", ваш результат: " + res.score + " очков";
+      codeBox.textContent = res.code;
+      showScreen("finish");
+    }).catch(function(){ /* not complete yet — stay on board */ });
+  }
+
+  closeBtn.addEventListener("click", function(){ veil.hidden = true; });
+
+  copyBtn.addEventListener("click", function(){
+    var code = codeBox.textContent;
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(code).then(function(){
+        copyBtn.textContent = "Скопировано!";
+        setTimeout(function(){ copyBtn.textContent = "Скопировать код"; }, 1500);
+      });
+    }
+  });
+
+  document.getElementById("joinScreen").addEventListener("submit", function(e){
+    e.preventDefault();
+    var v = document.getElementById("nameInput").value.trim();
+    if(!v) return;
+    localStorage.setItem(LS_NAME, v);
+    api("/api/solo/start", {name: v}).then(function(res){
+      attemptId = res.attempt_id;
+      total = res.total;
+      localStorage.setItem(LS_ATTEMPT, attemptId);
+      meName.textContent = res.name;
+      renderProgress(0, 0);
+      renderBoard();
+      showScreen("board");
+    });
+  });
+
+  function boot(){
+    fetch("/api/board").then(function(r){return r.json();}).then(function(b){
+      categories = b.categories;
+      pointValues = b.points;
+
+      if(!attemptId){
+        showScreen("join");
+        return;
+      }
+      fetch("/api/solo/status?attempt_id=" + encodeURIComponent(attemptId)).then(function(r){
+        if(!r.ok) throw new Error("not found");
+        return r.json();
+      }).then(function(st){
+        total = st.total;
+        meName.textContent = st.name;
+        Object.keys(st.used).forEach(function(key){
+          usedMap[key] = st.used[key] ? "correct" : "wrong";
+        });
+        renderProgress(Object.keys(st.used).length, st.score);
+        if(st.completed){
+          finishScoreLine.textContent = st.name + ", ваш результат: " + st.score + " очков";
+          codeBox.textContent = st.code;
+          showScreen("finish");
+        } else {
+          renderBoard();
+          showScreen("board");
+        }
+      }).catch(function(){
+        localStorage.removeItem(LS_ATTEMPT);
+        attemptId = null;
+        showScreen("join");
+      });
+    });
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
