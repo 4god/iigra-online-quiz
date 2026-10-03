@@ -15,6 +15,7 @@
   --mint:#39f2a4;
   --pink:#ff4fa6;
   --bad:#ff5d6c;
+  --good:#39f2a4;
   --focus:#ffd166;
 }
 
@@ -94,4 +95,43 @@ input{font:inherit;color:inherit;}
   border:1px solid var(--card-edge);
   border-radius:20px;
   padding:clamp(22px,4vw,40px);
+}
+
+/* Пасхальный ML-хардкор: вся страница уходит в красный.
+   --good остаётся зелёным, чтобы «верно» не путалось с акцентом. */
+body.ml{
+  --bg:#14070a;
+  --bg-deep:#0b0304;
+  --tile:#a3121f;
+  --tile-hi:#c81a2b;
+  --tile-used:#2a0c10;
+  --tile-used-ink:#6e2b33;
+  --card:#1d0a0e;
+  --card-edge:rgba(255,120,120,.13);
+  --ink:#fff1f1;
+  --ink-dim:#e0a7ab;
+  --ink-faint:#9a5b61;
+  --mint:#ff4d4d;
+  --pink:#ffb020;
+  background:
+    radial-gradient(1200px 600px at 82% -10%, rgba(255,77,77,.22), transparent 60%),
+    radial-gradient(1000px 700px at -10% 110%, rgba(255,176,32,.08), transparent 55%),
+    var(--bg);
+}
+body.ml .pill.cat{background:rgba(255,77,77,.14);border-color:rgba(255,77,77,.4);}
+body.ml .pill.pts{background:rgba(255,176,32,.14);border-color:rgba(255,176,32,.35);}
+.ml-badge{display:none;}
+body.ml .ml-badge{
+  display:inline-block;
+  font-family:"JetBrains Mono",monospace;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:#140507;
+  background:var(--mint);
+  border-radius:6px;
+  padding:3px 8px;
+  margin-left:8px;
+  vertical-align:middle;
 }

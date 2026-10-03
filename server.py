@@ -21,11 +21,25 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from questions import SETS, QUESTION_SECONDS as DEFAULT_QUESTION_SECONDS
+from questions import SETS, HARD, QUESTION_SECONDS as DEFAULT_QUESTION_SECONDS
 
 QUESTION_SECONDS = int(os.environ.get("QUESTION_SECONDS", DEFAULT_QUESTION_SECONDS))
-LIVE_VARIANT = int(os.environ.get("LIVE_VARIANT", 1))  # 1..len(SETS), which variant the broadcast plays
-BOARD = SETS[LIVE_VARIANT - 1]
+# The hidden ML set sits after the regular ones; it is never handed out at random.
+ALL_SETS = SETS + [HARD]
+HARD_INDEX = len(SETS)
+
+_live = os.environ.get("LIVE_VARIANT", "1").strip().lower()
+LIVE_INDEX = HARD_INDEX if _live == "ml" else int(_live) - 1  # "1".."11" or "ml"
+BOARD = ALL_SETS[LIVE_INDEX]
+
+
+def variant_info(index):
+    hard = index == HARD_INDEX
+    return {
+        "variant": "ML" if hard else index + 1,
+        "hard": hard,
+        "categories": [c["name"] for c in ALL_SETS[index]],
+    }
 
 BASE_DIR = Path(__file__).parent
 STATE_FILE = BASE_DIR / "game_state.json"
@@ -346,6 +360,7 @@ def gen_code():
 
 class SoloStartBody(BaseModel):
     name: str
+    mode: str | None = None
 
 
 class SoloOpenBody(BaseModel):
@@ -378,7 +393,7 @@ def get_attempt(attempt_id: str):
 
 
 def attempt_board(a):
-    return SETS[a.get("set", 0)]
+    return ALL_SETS[a.get("set", 0)]
 
 
 def check_tile(ci: int, li: int):
@@ -390,7 +405,7 @@ def check_tile(ci: int, li: int):
 def solo_start(body: SoloStartBody):
     name = (body.name or "Игрок").strip()[:24] or "Игрок"
     attempt_id = uuid.uuid4().hex
-    variant = secrets.randbelow(len(SETS))
+    variant = HARD_INDEX if body.mode == "ml" else secrets.randbelow(len(SETS))
     solo_db["attempts"][attempt_id] = {
         "name": name,
         "answers": {},
@@ -401,7 +416,7 @@ def solo_start(body: SoloStartBody):
         "set": variant,
     }
     persist_solo()
-    return {"attempt_id": attempt_id, "name": name, "total": TOTAL_QUESTIONS, "variant": variant + 1}
+    return {"attempt_id": attempt_id, "name": name, "total": TOTAL_QUESTIONS, **variant_info(variant)}
 
 
 @app.get("/api/solo/status")
@@ -414,7 +429,7 @@ def solo_status(attempt_id: str):
         "total": TOTAL_QUESTIONS,
         "completed": a["code"] is not None,
         "code": a["code"],
-        "variant": a.get("set", 0) + 1,
+        **variant_info(a.get("set", 0)),
     }
 
 
@@ -481,10 +496,11 @@ def solo_answer(body: SoloAnswerBody):
 @app.post("/api/solo/finish")
 def solo_finish(body: SoloFinishBody):
     a = get_attempt(body.attempt_id)
-    variant = a.get("set", 0) + 1
+    info = variant_info(a.get("set", 0))
+    variant = info["variant"]
     if a["code"]:
         return {"code": a["code"], "score": a["score"], "name": a["name"],
-                "completed_at": a["completed_at"], "variant": variant}
+                "completed_at": a["completed_at"], "variant": variant, "hard": info["hard"]}
 
     if len(a["answers"]) < TOTAL_QUESTIONS:
         raise HTTPException(409, f"not complete: {len(a['answers'])}/{TOTAL_QUESTIONS}")
@@ -498,10 +514,12 @@ def solo_finish(body: SoloFinishBody):
         "score": a["score"],
         "completed_at": completed_at,
         "variant": variant,
+        "hard": info["hard"],
     }
     persist_solo()
 
-    return {"code": code, "score": a["score"], "name": a["name"], "completed_at": completed_at, "variant": variant}
+    return {"code": code, "score": a["score"], "name": a["name"], "completed_at": completed_at,
+            "variant": variant, "hard": info["hard"]}
 
 
 @app.post("/api/verify")
@@ -598,6 +616,7 @@ def api_board():
         "categories": [c["name"] for c in BOARD],
         "points": [q["points"] for q in BOARD[0]["questions"]],
         "question_seconds": QUESTION_SECONDS,
+        "hard": LIVE_INDEX == HARD_INDEX,
     }
 
 

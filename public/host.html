@@ -94,7 +94,7 @@
     font-family:"JetBrains Mono",monospace;background:rgba(255,255,255,.08);
     border-radius:6px;width:24px;height:24px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;
   }
-  .opt-cell.correct{background:rgba(57,242,164,.14);border-color:var(--mint);color:var(--mint);}
+  .opt-cell.correct{background:rgba(57,242,164,.14);border-color:var(--good);color:var(--good);}
   .action-row{display:flex;gap:10px;flex-wrap:wrap;}
   .timer-track{
     height:8px;border-radius:999px;background:var(--bg-deep);overflow:hidden;
@@ -119,7 +119,7 @@
 <div id="app">
   <div class="topbar">
     <div class="brand">
-      <div class="mark">ИИ<span>гра</span></div>
+      <div class="mark">ИИ<span>гра</span><span class="ml-badge">ML hardcore</span></div>
       <div class="sub">Своя игра · 5 тем · 25 вопросов об ИИ</div>
     </div>
     <div class="join-info">
@@ -321,6 +321,7 @@
           categories = b.categories;
           pointValues = b.points;
           TOTAL_SECONDS = b.question_seconds;
+          document.body.classList.toggle("ml", !!b.hard);
           renderBoard();
         });
         break;

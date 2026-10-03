@@ -63,7 +63,7 @@
         result.innerHTML =
           '<div class="line">✅ <b>Код действителен</b></div>' +
           '<div class="line">Имя: <b>'+escapeHtml(data.name)+'</b></div>' +
-          '<div class="line">Результат: <b>'+data.score+' очков</b>' + (data.variant ? ' · вариант '+data.variant : '') + '</div>' +
+          '<div class="line">Результат: <b>'+data.score+' очков</b>' + (data.variant ? (data.variant === 'ML' ? ' · <b>ML-хардкор</b>' : ' · вариант '+data.variant) : '') + '</div>' +
           '<div class="line">Пройдено: <b>'+dt.toLocaleString("ru-RU")+'</b></div>';
       } else {
         result.className = "result bad";

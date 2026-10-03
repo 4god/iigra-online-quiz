@@ -48,7 +48,7 @@
     color:#fef9ff;cursor:pointer;
   }
   .tile:hover{background:var(--tile-hi);}
-  .tile.done-correct{background:rgba(57,242,164,.16);border-color:var(--mint);color:var(--mint);}
+  .tile.done-correct{background:rgba(57,242,164,.16);border-color:var(--good);color:var(--good);}
   .tile.done-wrong{background:rgba(255,93,108,.14);border-color:var(--bad);color:var(--bad);}
 
   .veil{
@@ -69,10 +69,10 @@
   }
   .opt-btn:hover:not(:disabled){background:var(--tile-hi);}
   .opt-btn:disabled{cursor:default;}
-  .opt-btn.correct{background:var(--mint);color:#042417;}
+  .opt-btn.correct{background:var(--good);color:#042417;}
   .opt-btn.wrong{background:var(--bad);color:#2b0506;}
   .status-line{text-align:center;font-weight:700;margin-bottom:14px;min-height:20px;}
-  .status-line.good{color:var(--mint);}
+  .status-line.good{color:var(--good);}
   .status-line.bad{color:var(--bad);}
   .close-row{text-align:center;}
 
@@ -92,7 +92,7 @@
 <body>
 
 <div class="topbar">
-  <div class="brand"><div class="mark">ИИ<span>гра</span></div></div>
+  <div class="brand"><div class="mark" id="logo" style="touch-action:manipulation;user-select:none;">ИИ<span>гра</span><span class="ml-badge">ML hardcore</span></div></div>
   <div class="progress-wrap" id="progressWrap" hidden>
     <span class="progress-label" id="variantLabel"></span>
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -107,10 +107,10 @@
 <main>
 
   <form class="join-form card" id="joinScreen">
-    <div style="font-family:'Unbounded',sans-serif;font-weight:700;font-size:18px;">Пройти «ИИгру» самому</div>
-    <p>25 вопросов про ИИ в своём темпе, без таймера. В конце — личный код, которым можно подтвердить, что вы прошли игру.</p>
+    <div style="font-family:'Unbounded',sans-serif;font-weight:700;font-size:18px;" id="joinTitle">Пройти «ИИгру» самому</div>
+    <p id="joinText">25 вопросов про ИИ в своём темпе, без таймера. В конце — личный код, которым можно подтвердить, что вы прошли игру.</p>
     <input id="nameInput" maxlength="24" placeholder="Ваше имя" autocomplete="off" required>
-    <button class="btn primary" type="submit">Начать</button>
+    <button class="btn primary" type="submit" id="joinBtn">Начать</button>
   </form>
 
   <div class="board-wrap" id="boardScreen" hidden>
@@ -189,9 +189,33 @@
     });
   }
 
-  function setVariant(v){
-    if(v) variantLabel.textContent = "Вариант " + v;
+  function variantName(v){
+    return v === "ML" ? "ML-хардкор" : "вариант " + v;
   }
+
+  function setVariant(v, hard){
+    document.body.classList.toggle("ml", !!hard);
+    if(v) variantLabel.textContent = v === "ML" ? "ML-хардкор" : "Вариант " + v;
+  }
+
+  // Пасхалка: 5 быстрых нажатий на логотип на стартовом экране включают ML-хардкор.
+  var mlMode = false;
+  var logoTaps = [];
+  document.getElementById("logo").addEventListener("click", function(){
+    if(joinScreen.hidden) return;
+    var now = Date.now();
+    logoTaps = logoTaps.filter(function(t){ return now - t < 2000; });
+    logoTaps.push(now);
+    if(logoTaps.length < 5) return;
+    logoTaps = [];
+    mlMode = !mlMode;
+    document.body.classList.toggle("ml", mlMode);
+    document.getElementById("joinTitle").textContent = mlMode ? "Вы нашли пасхалку" : "Пройти «ИИгру» самому";
+    document.getElementById("joinText").textContent = mlMode
+      ? "25 вопросов для data scientist'ов и ML-инженеров: от поправки Бесселя до MLA. Без таймера, в конце — код подтверждения."
+      : "25 вопросов про ИИ в своём темпе, без таймера. В конце — личный код, которым можно подтвердить, что вы прошли игру.";
+    document.getElementById("joinBtn").textContent = mlMode ? "Начать хардкор" : "Начать";
+  });
 
   function showScreen(name){
     joinScreen.hidden = (name !== "join");
@@ -291,8 +315,8 @@
   function finishGame(){
     api("/api/solo/finish", {attempt_id: attemptId}).then(function(res){
       veil.hidden = true;
-      setVariant(res.variant);
-      finishScoreLine.textContent = res.name + ", ваш результат: " + res.score + " очков · вариант " + res.variant;
+      setVariant(res.variant, res.hard);
+      finishScoreLine.textContent = res.name + ", ваш результат: " + res.score + " очков · " + variantName(res.variant);
       codeBox.textContent = res.code;
       showScreen("finish");
     }).catch(function(){ /* not complete yet — stay on board */ });
@@ -315,12 +339,13 @@
     var v = document.getElementById("nameInput").value.trim();
     if(!v) return;
     localStorage.setItem(LS_NAME, v);
-    api("/api/solo/start", {name: v}).then(function(res){
+    api("/api/solo/start", {name: v, mode: mlMode ? "ml" : null}).then(function(res){
       attemptId = res.attempt_id;
       total = res.total;
       localStorage.setItem(LS_ATTEMPT, attemptId);
       meName.textContent = res.name;
-      setVariant(res.variant);
+      setVariant(res.variant, res.hard);
+      categories = res.categories;
       renderProgress(0, 0);
       renderBoard();
       showScreen("board");
@@ -342,13 +367,14 @@
       }).then(function(st){
         total = st.total;
         meName.textContent = st.name;
-        setVariant(st.variant);
+        setVariant(st.variant, st.hard);
+        categories = st.categories;
         Object.keys(st.used).forEach(function(key){
           usedMap[key] = st.used[key] ? "correct" : "wrong";
         });
         renderProgress(Object.keys(st.used).length, st.score);
         if(st.completed){
-          finishScoreLine.textContent = st.name + ", ваш результат: " + st.score + " очков · вариант " + st.variant;
+          finishScoreLine.textContent = st.name + ", ваш результат: " + st.score + " очков · " + variantName(st.variant);
           codeBox.textContent = st.code;
           showScreen("finish");
         } else {
