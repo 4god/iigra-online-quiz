@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ИИгра — пульт ведущего</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body{display:flex;flex-direction:column;}
+
+  .auth-wrap{display:flex;flex-direction:column;gap:16px;width:min(340px,100%);text-align:center;}
+  .auth-wrap input{
+    background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:12px;
+    padding:14px 16px;font-size:18px;text-align:center;letter-spacing:.1em;
+    font-family:"JetBrains Mono",monospace;
+  }
+  .auth-err{color:var(--bad);font-size:13px;min-height:16px;}
+
+  #app{display:none;flex:1;flex-direction:column;}
+
+  .topbar{
+    display:flex;align-items:flex-start;justify-content:space-between;
+    padding:16px clamp(14px,2.5vw,32px) 10px;gap:20px;flex-wrap:wrap;
+  }
+  .join-info{
+    display:flex;align-items:center;gap:14px;
+    background:var(--card);border:1px solid var(--card-edge);
+    border-radius:16px;padding:10px 16px 10px 10px;
+  }
+  .join-info img{width:72px;height:72px;border-radius:10px;background:#fff;display:block;}
+  .join-info .url{font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--mint);}
+  .join-info .count{font-size:12px;color:var(--ink-dim);margin-top:2px;}
+  .reset-btn{font-size:13px;padding:9px 16px;}
+
+  .layout{
+    flex:1;display:grid;grid-template-columns:1fr 280px;gap:16px;
+    padding:4px clamp(14px,2.5vw,32px) clamp(14px,2.5vw,32px);
+  }
+  @media (max-width:900px){ .layout{grid-template-columns:1fr;} }
+
+  .board{
+    display:grid;grid-template-columns:repeat(5,1fr);
+    grid-auto-rows:minmax(44px,1fr);gap:7px;
+  }
+  .cat-head{
+    background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:10px;
+    display:flex;align-items:center;justify-content:center;text-align:center;padding:8px 6px;
+    font-family:"Unbounded",sans-serif;font-weight:700;font-size:clamp(10px,1.1vw,14px);line-height:1.2;
+  }
+  .tile{
+    background:var(--tile);border:1px solid rgba(255,255,255,.14);border-radius:10px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:"JetBrains Mono",monospace;font-weight:700;
+    font-size:clamp(16px,2.2vw,26px);color:#fef9ff;cursor:pointer;
+  }
+  .tile:hover:not(:disabled){background:var(--tile-hi);}
+  .tile:disabled{background:var(--tile-used);color:var(--tile-used-ink);cursor:default;}
+  .tile:disabled::after{content:"✓";font-family:"Manrope",sans-serif;}
+
+  .side{display:flex;flex-direction:column;gap:12px;}
+  .side h3{
+    font-family:"Unbounded",sans-serif;font-size:13px;margin:0 0 10px;
+    text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);
+  }
+  .lb-row{
+    display:flex;align-items:center;gap:10px;padding:7px 0;
+    border-bottom:1px solid var(--card-edge);font-size:14px;
+  }
+  .lb-row:last-child{border-bottom:none;}
+  .lb-row .rank{font-family:"JetBrains Mono",monospace;color:var(--ink-faint);width:1.5em;}
+  .lb-row .nm{flex:1;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lb-row .sc{font-family:"JetBrains Mono",monospace;color:var(--mint);font-weight:700;}
+
+  .veil{
+    position:fixed;inset:0;background:rgba(4,5,12,.86);backdrop-filter:blur(6px);
+    display:flex;align-items:center;justify-content:center;padding:24px;z-index:50;
+  }
+  .stage-card{width:min(820px,100%);position:relative;}
+  .pills{display:flex;gap:10px;align-items:center;margin-bottom:18px;}
+  .live-stat{
+    font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--ink-dim);
+    margin-left:auto;
+  }
+  .q-text{
+    font-family:"Unbounded",sans-serif;font-weight:600;
+    font-size:clamp(20px,3.2vw,28px);line-height:1.3;margin:0 0 22px;text-wrap:balance;
+  }
+  .opt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:22px;}
+  .opt-cell{
+    background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:10px;
+    padding:12px 14px;font-weight:700;font-size:14px;display:flex;gap:10px;align-items:center;
+  }
+  .opt-cell .letter{
+    font-family:"JetBrains Mono",monospace;background:rgba(255,255,255,.08);
+    border-radius:6px;width:24px;height:24px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;
+  }
+  .opt-cell.correct{background:rgba(57,242,164,.14);border-color:var(--mint);color:var(--mint);}
+  .action-row{display:flex;gap:10px;flex-wrap:wrap;}
+  .timer-track{
+    height:8px;border-radius:999px;background:var(--bg-deep);overflow:hidden;
+    margin-bottom:16px;border:1px solid var(--card-edge);
+  }
+  .timer-fill{height:100%;background:var(--mint);width:100%;transition:width .2s linear, background .3s;}
+
+  [hidden]{display:none!important;}
+</style>
+</head>
+<body>
+
+<div class="center-screen" id="authScreen">
+  <form class="auth-wrap card" id="authForm">
+    <div class="brand" style="align-items:center;"><div class="mark">ИИ<span>гра</span></div><div class="sub">Пульт ведущего</div></div>
+    <input id="keyInput" placeholder="КЛЮЧ" autocomplete="off" required>
+    <div class="auth-err" id="authErr"></div>
+    <button class="btn primary" type="submit">Войти как ведущий</button>
+  </form>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <div class="brand">
+      <div class="mark">ИИ<span>гра</span></div>
+      <div class="sub">Своя игра · 5 тем · 25 вопросов об ИИ</div>
+    </div>
+    <div class="join-info">
+      <img id="qrImg" alt="QR-код для входа в игру">
+      <div>
+        <div class="url" id="joinUrl">—</div>
+        <div class="count"><span id="playerCount">0</span> игроков на связи</div>
+      </div>
+    </div>
+    <button class="btn ghost reset-btn" id="resetBtn" type="button">Начать заново</button>
+  </div>
+
+  <div class="layout">
+    <div class="board" id="board"></div>
+    <div class="side card">
+      <h3>Лидерборд</h3>
+      <div id="lbList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="veil" id="veil" hidden>
+  <div class="stage-card card">
+    <div class="pills">
+      <span class="pill cat" id="pillCat"></span>
+      <span class="pill pts" id="pillPts"></span>
+      <span class="live-stat" id="liveStat">0 ответили</span>
+    </div>
+    <div class="timer-track"><div class="timer-fill" id="timerFill"></div></div>
+    <p class="q-text" id="qText"></p>
+    <div class="opt-grid" id="optGrid"></div>
+    <div class="action-row" id="actionRow">
+      <button class="btn primary" id="revealBtn" type="button">Показать ответ</button>
+      <button class="btn ghost" id="cancelBtn" type="button">Отменить вопрос</button>
+    </div>
+    <div class="action-row" id="closeRow" hidden>
+      <button class="btn primary" id="closeBtn" type="button">Вернуться к табло</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var authScreen = document.getElementById("authScreen");
+  var authForm = document.getElementById("authForm");
+  var authErr = document.getElementById("authErr");
+  var app = document.getElementById("app");
+
+  var boardEl = document.getElementById("board");
+  var lbList = document.getElementById("lbList");
+  var playerCountEl = document.getElementById("playerCount");
+  var qrImg = document.getElementById("qrImg");
+  var joinUrlEl = document.getElementById("joinUrl");
+  var resetBtn = document.getElementById("resetBtn");
+
+  var veil = document.getElementById("veil");
+  var pillCat = document.getElementById("pillCat");
+  var pillPts = document.getElementById("pillPts");
+  var liveStat = document.getElementById("liveStat");
+  var qText = document.getElementById("qText");
+  var optGrid = document.getElementById("optGrid");
+  var timerFill = document.getElementById("timerFill");
+  var actionRow = document.getElementById("actionRow");
+  var closeRow = document.getElementById("closeRow");
+  var revealBtn = document.getElementById("revealBtn");
+  var cancelBtn = document.getElementById("cancelBtn");
+  var closeBtn = document.getElementById("closeBtn");
+
+  var categories = [];
+  var pointValues = [100,200,300,400,500];
+  var usedMap = {};
+  var TOTAL_SECONDS = 20;
+  var timerRAF = null;
+
+  var joinUrl = location.origin + "/play";
+  joinUrlEl.textContent = joinUrl;
+  qrImg.src = "/qr?data=" + encodeURIComponent(joinUrl);
+
+  var proto = location.protocol === "https:" ? "wss:" : "ws:";
+  var ws = new WebSocket(proto + "//" + location.host + "/ws");
+  function send(obj){ if(ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
+
+  ws.addEventListener("close", function(){
+    authErr.textContent = "";
+    document.title = "ИИгра — соединение потеряно";
+    var banner = document.createElement("div");
+    banner.textContent = "Соединение с сервером потеряно — обновите страницу";
+    banner.style.cssText = "position:fixed;top:0;left:0;right:0;background:var(--bad);color:#2b0506;text-align:center;padding:10px;font-weight:800;z-index:100;";
+    document.body.appendChild(banner);
+  });
+
+  authForm.addEventListener("submit", function(e){
+    e.preventDefault();
+    send({type:"host_auth", key: document.getElementById("keyInput").value.trim()});
+  });
+
+  function renderBoard(){
+    boardEl.innerHTML = "";
+    categories.forEach(function(name){
+      var h = document.createElement("div");
+      h.className = "cat-head";
+      h.textContent = name;
+      boardEl.appendChild(h);
+    });
+    for(let li=0; li<5; li++){
+      categories.forEach(function(name, ci){
+        var key = ci + "-" + li;
+        var btn = document.createElement("button");
+        btn.className = "tile";
+        btn.type = "button";
+        btn.textContent = pointValues[li];
+        btn.disabled = !!usedMap[key];
+        btn.addEventListener("click", function(){
+          send({type:"open_question", ci: ci, li: li});
+        });
+        boardEl.appendChild(btn);
+      });
+    }
+  }
+
+  function renderLeaderboard(rows){
+    lbList.innerHTML = "";
+    if(!rows.length){
+      lbList.innerHTML = '<div style="color:var(--ink-faint);font-size:13px;">Пока никто не набрал очков</div>';
+      return;
+    }
+    rows.forEach(function(r, i){
+      var row = document.createElement("div");
+      row.className = "lb-row";
+      row.innerHTML =
+        '<span class="rank">'+(i+1)+'</span>' +
+        '<span class="nm"></span>' +
+        '<span class="sc">'+r.score+'</span>';
+      row.querySelector(".nm").textContent = r.name;
+      lbList.appendChild(row);
+    });
+  }
+
+  function stopTimer(){ if(timerRAF){ cancelAnimationFrame(timerRAF); timerRAF=null; } }
+  function startTimer(deadline){
+    stopTimer();
+    function tick(){
+      var remain = deadline - (Date.now()/1000);
+      var frac = Math.max(0, Math.min(1, remain/TOTAL_SECONDS));
+      timerFill.style.width = (frac*100)+"%";
+      timerFill.style.background = frac < 0.25 ? "var(--bad)" : (frac < 0.5 ? "var(--focus)" : "var(--mint)");
+      if(remain > 0) timerRAF = requestAnimationFrame(tick);
+    }
+    tick();
+  }
+
+  var letters = ["А","Б","В","Г"];
+
+  function openVeil(data, answeredCount){
+    pillCat.textContent = data.category;
+    pillPts.textContent = data.points + " очков";
+    liveStat.textContent = (answeredCount||0) + " ответили";
+    qText.textContent = data.q;
+    optGrid.innerHTML = "";
+    data.options.forEach(function(opt, idx){
+      var c = document.createElement("div");
+      c.className = "opt-cell";
+      c.id = "opt-" + idx;
+      c.innerHTML = '<span class="letter">'+letters[idx]+'</span><span></span>';
+      c.querySelector("span:last-child").textContent = opt;
+      optGrid.appendChild(c);
+    });
+    actionRow.hidden = false;
+    closeRow.hidden = true;
+    startTimer(data.deadline);
+    veil.hidden = false;
+  }
+
+  revealBtn.addEventListener("click", function(){ send({type:"reveal"}); });
+  cancelBtn.addEventListener("click", function(){ send({type:"cancel_question"}); veil.hidden = true; stopTimer(); });
+  closeBtn.addEventListener("click", function(){ veil.hidden = true; });
+
+  resetBtn.addEventListener("click", function(){
+    if(confirm("Сбросить счёт у всех игроков и открыть все вопросы заново?")){
+      send({type:"reset_game"});
+    }
+  });
+
+  ws.addEventListener("message", function(evt){
+    var msg;
+    try{ msg = JSON.parse(evt.data); }catch(e){ return; }
+
+    switch(msg.type){
+      case "host_ok":
+        authScreen.style.display = "none";
+        app.style.display = "flex";
+        fetch("/api/board").then(function(r){return r.json();}).then(function(b){
+          categories = b.categories;
+          pointValues = b.points;
+          TOTAL_SECONDS = b.question_seconds;
+          renderBoard();
+        });
+        break;
+
+      case "error":
+        authErr.textContent = msg.message;
+        break;
+
+      case "sync":
+        usedMap = msg.used || {};
+        if(categories.length) renderBoard();
+        renderLeaderboard(msg.leaderboard || []);
+        playerCountEl.textContent = msg.player_count || 0;
+        if((msg.phase === "question" || msg.phase === "locked") && msg.current){
+          openVeil(msg.current, 0);
+        }
+        break;
+
+      case "player_count":
+        playerCountEl.textContent = msg.count;
+        break;
+
+      case "question_opened":
+        openVeil(msg.data, 0);
+        break;
+
+      case "answer_count":
+        liveStat.textContent = msg.count + " ответили";
+        break;
+
+      case "time_up":
+        actionRow.hidden = false;
+        break;
+
+      case "cancelled":
+        veil.hidden = true;
+        stopTimer();
+        break;
+
+      case "revealed":
+        stopTimer();
+        usedMap = msg.used || {};
+        renderBoard();
+        renderLeaderboard(msg.leaderboard || []);
+        document.querySelectorAll(".opt-cell").forEach(function(el, idx){
+          el.classList.toggle("correct", idx === msg.correct);
+        });
+        liveStat.textContent = msg.correct_count + " из " + msg.answered_count + " ответили верно";
+        actionRow.hidden = true;
+        closeRow.hidden = false;
+        break;
+    }
+  });
+})();
+</script>
+</body>
+</html>

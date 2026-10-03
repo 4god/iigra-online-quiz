@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ИИгра</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body{display:flex;flex-direction:column;}
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 18px;
+    border-bottom:1px solid var(--card-edge);
+    gap:10px;
+  }
+  .me{
+    display:flex;align-items:center;gap:8px;
+    background:var(--bg-deep);
+    border:1px solid var(--card-edge);
+    border-radius:999px;
+    padding:7px 14px;
+    font-weight:700;
+    font-size:13px;
+  }
+  .me .score{
+    font-family:"JetBrains Mono",monospace;
+    color:var(--mint);
+    font-variant-numeric:tabular-nums;
+  }
+  main{flex:1;display:flex;align-items:center;justify-content:center;padding:18px;}
+
+  .join-form{display:flex;flex-direction:column;gap:16px;width:min(360px,100%);text-align:center;}
+  .join-form input{
+    background:var(--bg-deep);
+    border:1px solid var(--card-edge);
+    border-radius:12px;
+    padding:14px 16px;
+    font-size:16px;
+    text-align:center;
+  }
+
+  .wait-wrap{text-align:center;max-width:420px;}
+  .wait-wrap .big{font-family:"Unbounded",sans-serif;font-weight:700;font-size:20px;margin:14px 0 6px;}
+  .pulse{
+    width:14px;height:14px;border-radius:50%;background:var(--mint);
+    margin:0 auto;
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{transform:scale(1);opacity:1;}50%{transform:scale(1.6);opacity:.4;}}
+
+  .q-wrap{width:min(560px,100%);}
+  .q-pills{display:flex;gap:8px;margin-bottom:16px;}
+  .timer-track{
+    height:8px;border-radius:999px;background:var(--bg-deep);
+    overflow:hidden;margin-bottom:18px;border:1px solid var(--card-edge);
+  }
+  .timer-fill{height:100%;background:var(--mint);width:100%;transition:width .2s linear, background .3s;}
+  .q-text{
+    font-family:"Unbounded",sans-serif;font-weight:600;
+    font-size:clamp(18px,4.5vw,24px);line-height:1.3;
+    margin:0 0 20px;text-wrap:balance;
+  }
+  .options{display:grid;gap:10px;}
+  .opt-btn{
+    text-align:left;
+    background:var(--tile);
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:12px;
+    padding:16px 18px;
+    font-weight:700;
+    font-size:15px;
+    color:#fef9ff;
+    cursor:pointer;
+    display:flex;gap:12px;align-items:center;
+  }
+  .opt-btn .letter{
+    font-family:"JetBrains Mono",monospace;
+    background:rgba(255,255,255,.15);
+    border-radius:8px;
+    width:28px;height:28px;flex:none;
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;
+  }
+  .opt-btn:hover:not(:disabled){background:var(--tile-hi);}
+  .opt-btn:disabled{cursor:default;}
+  .opt-btn.selected{outline:3px solid var(--focus);}
+  .opt-btn.correct{background:var(--mint);color:#042417;}
+  .opt-btn.wrong{background:var(--bad);color:#2b0506;}
+  .opt-btn.dim{opacity:.45;}
+
+  .status-line{
+    text-align:center;color:var(--ink-dim);font-size:13px;
+    margin-top:14px;font-weight:600;
+  }
+
+  .result-wrap{text-align:center;max-width:400px;}
+  .result-wrap .badge{
+    font-family:"Unbounded",sans-serif;font-weight:800;
+    font-size:clamp(28px,7vw,38px);
+    margin-bottom:6px;
+  }
+  .result-wrap.good .badge{color:var(--mint);}
+  .result-wrap.bad .badge{color:var(--bad);}
+  .result-wrap .detail{color:var(--ink-dim);font-size:14px;margin-bottom:18px;}
+  .result-wrap .score-now{
+    font-family:"JetBrains Mono",monospace;font-weight:700;
+    font-size:22px;color:var(--ink);
+  }
+  .result-wrap .rank{color:var(--ink-faint);font-size:13px;margin-top:4px;}
+
+  [hidden]{display:none!important;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><div class="mark">ИИ<span>гра</span></div></div>
+  <div class="me" id="meBox" hidden>
+    <span id="meName">—</span>
+    <span class="score" id="meScore">0</span>
+  </div>
+</div>
+
+<main>
+
+  <form class="join-form card" id="joinScreen">
+    <div style="font-family:'Unbounded',sans-serif;font-weight:700;font-size:18px;">Как вас записать в игру?</div>
+    <input id="nameInput" maxlength="24" placeholder="Ваше имя" autocomplete="off" required>
+    <button class="btn primary" type="submit">Войти в игру</button>
+  </form>
+
+  <div class="wait-wrap" id="waitScreen" hidden>
+    <div class="pulse"></div>
+    <div class="big" id="waitText">Ждём, пока ведущий откроет вопрос…</div>
+    <div style="color:var(--ink-faint);font-size:13px;" id="waitSub">Смотрите на основной экран трансляции</div>
+  </div>
+
+  <div class="q-wrap card" id="qScreen" hidden>
+    <div class="q-pills">
+      <span class="pill cat" id="qCat"></span>
+      <span class="pill pts" id="qPts"></span>
+    </div>
+    <div class="timer-track"><div class="timer-fill" id="timerFill"></div></div>
+    <p class="q-text" id="qText"></p>
+    <div class="options" id="qOptions"></div>
+    <div class="status-line" id="qStatus"></div>
+  </div>
+
+  <div class="result-wrap card" id="resultScreen" hidden>
+    <div class="badge" id="resBadge"></div>
+    <div class="detail" id="resDetail"></div>
+    <div class="score-now"><span id="resScore">0</span> очков</div>
+    <div class="rank" id="resRank"></div>
+  </div>
+
+</main>
+
+<script>
+(function(){
+  "use strict";
+
+  var LS_ID = "iigra-player-id";
+  var LS_NAME = "iigra-player-name";
+
+  var joinScreen = document.getElementById("joinScreen");
+  var waitScreen = document.getElementById("waitScreen");
+  var waitText = document.getElementById("waitText");
+  var qScreen = document.getElementById("qScreen");
+  var resultScreen = document.getElementById("resultScreen");
+  var meBox = document.getElementById("meBox");
+  var meName = document.getElementById("meName");
+  var meScore = document.getElementById("meScore");
+
+  var qCat = document.getElementById("qCat");
+  var qPts = document.getElementById("qPts");
+  var qText = document.getElementById("qText");
+  var qOptions = document.getElementById("qOptions");
+  var qStatus = document.getElementById("qStatus");
+  var timerFill = document.getElementById("timerFill");
+
+  var resBadge = document.getElementById("resBadge");
+  var resDetail = document.getElementById("resDetail");
+  var resScore = document.getElementById("resScore");
+  var resRank = document.getElementById("resRank");
+
+  var screens = [joinScreen, waitScreen, qScreen, resultScreen];
+  function show(el){
+    screens.forEach(function(s){ s.hidden = (s !== el); });
+  }
+
+  var playerId = localStorage.getItem(LS_ID) || null;
+  var playerName = localStorage.getItem(LS_NAME) || "";
+  var hasAnsweredCurrent = false;
+  var timerRAF = null;
+  var joined = false;
+
+  var proto = location.protocol === "https:" ? "wss:" : "ws:";
+  var ws = new WebSocket(proto + "//" + location.host + "/ws");
+
+  function send(obj){
+    if(ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  }
+
+  function doJoin(name){
+    playerName = name;
+    localStorage.setItem(LS_NAME, name);
+    send({type:"join", player_id: playerId, name: name});
+  }
+
+  ws.addEventListener("open", function(){
+    if(playerName){
+      doJoin(playerName);
+    } else {
+      show(joinScreen);
+    }
+  });
+
+  ws.addEventListener("close", function(){
+    waitText.textContent = "Соединение потеряно. Обновите страницу.";
+    show(waitScreen);
+  });
+
+  document.getElementById("joinScreen").addEventListener("submit", function(e){
+    e.preventDefault();
+    var v = document.getElementById("nameInput").value.trim();
+    if(!v) return;
+    doJoin(v);
+  });
+
+  function updateMe(name, score){
+    meName.textContent = name;
+    meScore.textContent = score;
+    meBox.hidden = false;
+  }
+
+  function stopTimer(){
+    if(timerRAF){ cancelAnimationFrame(timerRAF); timerRAF = null; }
+  }
+
+  function startTimer(deadlineSec, totalSec){
+    stopTimer();
+    function tick(){
+      var remain = deadlineSec - (Date.now()/1000);
+      var frac = Math.max(0, Math.min(1, remain/totalSec));
+      timerFill.style.width = (frac*100) + "%";
+      timerFill.style.background = frac < 0.25 ? "var(--bad)" : (frac < 0.5 ? "var(--focus)" : "var(--mint)");
+      if(remain > 0){
+        timerRAF = requestAnimationFrame(tick);
+      }
+    }
+    tick();
+  }
+
+  function renderQuestion(data, locked){
+    hasAnsweredCurrent = false;
+    qCat.textContent = data.category;
+    qPts.textContent = data.points + " очков";
+    qText.textContent = data.q;
+    qOptions.innerHTML = "";
+    qStatus.textContent = "";
+    var letters = ["А","Б","В","Г"];
+    data.options.forEach(function(opt, idx){
+      var b = document.createElement("button");
+      b.className = "opt-btn";
+      b.type = "button";
+      b.disabled = !!locked;
+      b.innerHTML = '<span class="letter">'+letters[idx]+'</span><span>'+
+        opt.replace(/[<>&]/g, function(c){return {"<":"&lt;",">":"&gt;","&":"&amp;"}[c];}) + "</span>";
+      b.addEventListener("click", function(){
+        if(hasAnsweredCurrent) return;
+        hasAnsweredCurrent = true;
+        Array.prototype.forEach.call(qOptions.children, function(el){ el.disabled = true; });
+        b.classList.add("selected");
+        qStatus.textContent = "Ответ отправлен — ждём остальных игроков…";
+        send({type:"answer", option: idx});
+      });
+      qOptions.appendChild(b);
+    });
+    if(locked && !hasAnsweredCurrent){
+      qStatus.textContent = "Время вышло — ждём ведущего.";
+      Array.prototype.forEach.call(qOptions.children, function(el){ el.disabled = true; });
+    }
+    startTimer(data.deadline, TOTAL_SECONDS);
+    show(qScreen);
+  }
+
+  var TOTAL_SECONDS = 20;
+  fetch("/api/board").then(function(r){return r.json();}).then(function(b){
+    TOTAL_SECONDS = b.question_seconds || 20;
+  }).catch(function(){});
+
+  ws.addEventListener("message", function(evt){
+    var msg;
+    try{ msg = JSON.parse(evt.data); }catch(e){ return; }
+
+    switch(msg.type){
+      case "joined":
+        joined = true;
+        playerId = msg.player_id;
+        localStorage.setItem(LS_ID, playerId);
+        updateMe(playerName, msg.score);
+        break;
+
+      case "sync":
+        if(msg.you){
+          joined = true;
+          playerId = msg.you.player_id;
+          localStorage.setItem(LS_ID, playerId);
+          updateMe(msg.you.name, msg.you.score);
+        }
+        if(!joined) break; // initial sync before this client has joined — stay on the join form
+        if(msg.phase === "question" || msg.phase === "locked"){
+          if(msg.current) renderQuestion(msg.current, msg.phase === "locked");
+        } else {
+          waitText.textContent = "Ждём, пока ведущий откроет вопрос…";
+          show(waitScreen);
+        }
+        break;
+
+      case "question_opened":
+        stopTimer();
+        renderQuestion(msg.data, false);
+        break;
+
+      case "time_up":
+        if(!hasAnsweredCurrent){
+          qStatus.textContent = "Время вышло — ждём ведущего.";
+          Array.prototype.forEach.call(qOptions.children, function(el){ el.disabled = true; });
+        }
+        break;
+
+      case "cancelled":
+        stopTimer();
+        waitText.textContent = "Вопрос отменён ведущим. Ждём следующий…";
+        show(waitScreen);
+        break;
+
+      case "revealed":
+        if(!hasAnsweredCurrent){
+          // спектатор / не успел ответить
+          stopTimer();
+          waitText.textContent = "Ждём, пока ведущий откроет следующий вопрос…";
+          show(waitScreen);
+        }
+        break;
+
+      case "your_result":
+        stopTimer();
+        var wrap = document.getElementById("resultScreen");
+        wrap.className = "result-wrap card " + (msg.correct ? "good" : "bad");
+        resBadge.textContent = msg.correct ? "Верно!" : "Увы, не в этот раз";
+        resDetail.textContent = msg.correct ? ("+" + msg.points_earned + " очков") : "Правильный вариант был другим";
+        resScore.textContent = msg.score;
+        resRank.textContent = msg.rank ? ("Место в рейтинге: " + msg.rank) : "";
+        meScore.textContent = msg.score;
+        show(resultScreen);
+        break;
+
+      case "player_count":
+        break;
+    }
+  });
+})();
+</script>
+</body>
+</html>
