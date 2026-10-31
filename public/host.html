@@ -6,103 +6,108 @@
 <title>ИИгра — пульт ведущего</title>
 <link rel="stylesheet" href="/static/style.css">
 <style>
-  body{display:flex;flex-direction:column;}
+  body{display:flex;flex-direction:column;min-height:100vh;}
+  [hidden]{display:none!important;}
 
   .auth-wrap{display:flex;flex-direction:column;gap:16px;width:min(340px,100%);text-align:center;}
   .auth-wrap input{
     background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:12px;
-    padding:14px 16px;font-size:18px;text-align:center;letter-spacing:.1em;
-    font-family:"JetBrains Mono",monospace;
+    padding:14px 16px;font-size:18px;text-align:center;letter-spacing:.1em;font-family:"JetBrains Mono",monospace;
   }
   .auth-err{color:var(--bad);font-size:13px;min-height:16px;}
 
-  #app{display:none;flex:1;flex-direction:column;}
+  .topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px clamp(12px,2vw,28px);border-bottom:1px solid var(--card-edge);}
+  .join{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--card-edge);border-radius:14px;padding:8px 14px 8px 8px;}
+  .join img{width:64px;height:64px;border-radius:8px;background:#fff;display:block;}
+  .join .url{font-family:"JetBrains Mono",monospace;font-size:14px;color:var(--mint);font-weight:700;}
+  .join .hint{font-size:12px;color:var(--ink-dim);}
+  .stats{display:flex;gap:18px;}
+  .stat .n{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:20px;}
+  .stat .l{font-size:11px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.08em;font-weight:700;}
+  .phase{margin-left:auto;font-weight:800;font-size:13px;padding:7px 12px;border-radius:999px;background:var(--bg-deep);border:1px solid var(--card-edge);}
 
-  .topbar{
-    display:flex;align-items:flex-start;justify-content:space-between;
-    padding:16px clamp(14px,2.5vw,32px) 10px;gap:20px;flex-wrap:wrap;
-  }
-  .join-info{
-    display:flex;align-items:center;gap:14px;
-    background:var(--card);border:1px solid var(--card-edge);
-    border-radius:16px;padding:10px 16px 10px 10px;
-  }
-  .join-info img{width:72px;height:72px;border-radius:10px;background:#fff;display:block;}
-  .join-info .url{font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--mint);}
-  .join-info .count{font-size:12px;color:var(--ink-dim);margin-top:2px;}
-  .reset-btn{font-size:13px;padding:9px 16px;}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:10px clamp(12px,2vw,28px);}
+  .controls .btn{padding:10px 16px;font-size:14px;}
+  .btn.warn{background:var(--focus);color:#2a1d00;border:none;}
+  .warn-bar{background:var(--focus);color:#2a1d00;font-weight:800;text-align:center;padding:8px;font-size:13px;}
+  .conn-bar{background:var(--bad);color:#2b0506;font-weight:800;text-align:center;padding:8px;font-size:13px;}
 
-  .layout{
-    flex:1;display:grid;grid-template-columns:1fr 280px;gap:16px;
-    padding:4px clamp(14px,2.5vw,32px) clamp(14px,2.5vw,32px);
-  }
-  @media (max-width:900px){ .layout{grid-template-columns:1fr;} }
-
-  .board{
-    display:grid;grid-template-columns:repeat(5,1fr);
-    grid-auto-rows:minmax(44px,1fr);gap:7px;
-  }
-  .cat-head{
-    background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:10px;
-    display:flex;align-items:center;justify-content:center;text-align:center;padding:8px 6px;
-    font-family:"Unbounded",sans-serif;font-weight:700;font-size:clamp(10px,1.1vw,14px);line-height:1.2;
-  }
-  .tile{
-    background:var(--tile);border:1px solid rgba(255,255,255,.14);border-radius:10px;
-    display:flex;align-items:center;justify-content:center;
-    font-family:"JetBrains Mono",monospace;font-weight:700;
-    font-size:clamp(16px,2.2vw,26px);color:#fef9ff;cursor:pointer;
-  }
+  .layout{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;padding:4px clamp(12px,2vw,28px) 16px;min-height:0;}
+  @media (max-width:1000px){.layout{grid-template-columns:1fr;}}
+  .board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-auto-rows:minmax(54px,1fr);gap:7px;}
+  .cat-head{background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:10px;display:flex;align-items:center;justify-content:center;text-align:center;padding:8px 6px;font-family:"Unbounded",sans-serif;font-weight:700;font-size:clamp(10px,1.1vw,14px);line-height:1.2;}
+  .tile{position:relative;overflow:hidden;background:var(--tile);border:1px solid rgba(255,255,255,.14);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-family:"JetBrains Mono",monospace;font-weight:700;font-size:clamp(16px,2.2vw,28px);color:#fef9ff;cursor:pointer;}
   .tile:hover:not(:disabled){background:var(--tile-hi);}
   .tile:disabled{background:var(--tile-used);color:var(--tile-used-ink);cursor:default;}
-  .tile:disabled::after{content:"✓";font-family:"Manrope",sans-serif;}
+  .tile .votes{font-size:12px;font-family:"Manrope",sans-serif;}
+  .tile .bar{position:absolute;left:0;bottom:0;height:5px;background:var(--focus);}
+  .tile.winner{outline:4px solid var(--mint);outline-offset:-4px;animation:glow 1.2s ease-in-out infinite;}
+  @keyframes glow{50%{box-shadow:0 0 0 8px rgba(57,242,164,.25);}}
+  @media (prefers-reduced-motion:reduce){.tile.winner{animation:none;}}
 
-  .side{display:flex;flex-direction:column;gap:12px;}
-  .side h3{
-    font-family:"Unbounded",sans-serif;font-size:13px;margin:0 0 10px;
-    text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);
-  }
-  .lb-row{
-    display:flex;align-items:center;gap:10px;padding:7px 0;
-    border-bottom:1px solid var(--card-edge);font-size:14px;
-  }
+  .side{display:flex;flex-direction:column;gap:12px;min-height:0;}
+  .side .card{padding:16px;}
+  .side h3{font-family:"Unbounded",sans-serif;font-size:12px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);}
+  .lb-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--card-edge);font-size:14px;}
   .lb-row:last-child{border-bottom:none;}
-  .lb-row .rank{font-family:"JetBrains Mono",monospace;color:var(--ink-faint);width:1.5em;}
-  .lb-row .nm{flex:1;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lb-row .pl{font-family:"JetBrains Mono",monospace;color:var(--ink-faint);width:2.4em;}
+  .lb-row .nm{flex:1;font-weight:700;font-family:"JetBrains Mono",monospace;}
   .lb-row .sc{font-family:"JetBrains Mono",monospace;color:var(--mint);font-weight:700;}
 
-  .veil{
-    position:fixed;inset:0;background:rgba(4,5,12,.86);backdrop-filter:blur(6px);
-    display:flex;align-items:center;justify-content:center;padding:24px;z-index:50;
-  }
-  .stage-card{width:min(820px,100%);position:relative;}
-  .pills{display:flex;gap:10px;align-items:center;margin-bottom:18px;}
-  .live-stat{
-    font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--ink-dim);
-    margin-left:auto;
-  }
-  .q-text{
-    font-family:"Unbounded",sans-serif;font-weight:600;
-    font-size:clamp(20px,3.2vw,28px);line-height:1.3;margin:0 0 22px;text-wrap:balance;
-  }
-  .opt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:22px;}
-  .opt-cell{
-    background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:10px;
-    padding:12px 14px;font-weight:700;font-size:14px;display:flex;gap:10px;align-items:center;
-  }
-  .opt-cell .letter{
-    font-family:"JetBrains Mono",monospace;background:rgba(255,255,255,.08);
-    border-radius:6px;width:24px;height:24px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;
-  }
-  .opt-cell.correct{background:rgba(57,242,164,.14);border-color:var(--good);color:var(--good);}
-  .action-row{display:flex;gap:10px;flex-wrap:wrap;}
-  .timer-track{
-    height:8px;border-radius:999px;background:var(--bg-deep);overflow:hidden;
-    margin-bottom:16px;border:1px solid var(--card-edge);
-  }
-  .timer-fill{height:100%;background:var(--mint);width:100%;transition:width .2s linear, background .3s;}
+  .chat-card{display:flex;flex-direction:column;flex:1;min-height:320px;padding:0!important;overflow:hidden;}
+  .chat-head{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--card-edge);font-weight:700;font-size:14px;}
+  .chat-list{flex:1;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:4px;max-height:52vh;}
+  .msg{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.4;padding:4px 6px;border-radius:8px;}
+  .msg:hover{background:var(--bg-deep);}
+  .msg .who{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:12px;flex:none;}
+  .msg .text{flex:1;overflow-wrap:anywhere;}
+  .msg.host{background:rgba(255,79,166,.12);}
+  .msg.host .who{color:var(--pink);}
+  .msg .acts{display:flex;gap:4px;opacity:0;flex:none;}
+  .msg:hover .acts,.msg:focus-within .acts{opacity:1;}
+  .msg .acts button{background:var(--card);border:1px solid var(--card-edge);border-radius:6px;color:var(--ink-dim);font-size:11px;padding:2px 6px;cursor:pointer;}
+  .msg .acts button:hover{color:var(--bad);border-color:var(--bad);}
+  .chat-form{display:flex;gap:8px;padding:10px;border-top:1px solid var(--card-edge);}
+  .chat-form input{flex:1;min-width:0;background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:10px;padding:9px 12px;font-size:14px;}
 
-  [hidden]{display:none!important;}
+  .veil{position:fixed;inset:0;background:rgba(4,5,12,.88);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px;z-index:50;}
+  .stage{width:min(900px,100%);max-height:calc(100vh - 48px);overflow:auto;}
+  .pills{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;}
+  .live-stat{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:14px;color:var(--ink-dim);}
+  .timer-track{height:10px;border-radius:999px;background:var(--bg-deep);overflow:hidden;margin-bottom:16px;border:1px solid var(--card-edge);}
+  .timer-fill{height:100%;background:var(--mint);width:100%;}
+  .q-text{font-family:"Unbounded",sans-serif;font-weight:600;font-size:clamp(22px,3vw,32px);line-height:1.3;margin:0 0 22px;text-wrap:balance;}
+  .opt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:22px;}
+  .opt-cell{position:relative;overflow:hidden;background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:12px;padding:14px 16px;font-weight:700;font-size:16px;display:flex;gap:10px;align-items:center;}
+  .opt-cell .fill{position:absolute;inset:0 auto 0 0;background:rgba(255,255,255,.08);}
+  .opt-cell .letter{position:relative;font-family:"JetBrains Mono",monospace;background:rgba(255,255,255,.08);border-radius:6px;width:26px;height:26px;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;}
+  .opt-cell .label{position:relative;flex:1;}
+  .opt-cell .share{position:relative;font-family:"JetBrains Mono",monospace;font-size:14px;color:var(--ink-dim);}
+  .opt-cell.correct{background:rgba(57,242,164,.14);border-color:var(--good);color:var(--good);}
+  .opt-cell.correct .fill{background:rgba(57,242,164,.18);}
+  .action-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+
+  .final-title{font-family:"Unbounded",sans-serif;font-weight:900;font-size:clamp(26px,4vw,44px);margin:0 0 4px;}
+  .final-sub{color:var(--ink-dim);margin:0 0 18px;}
+  .final-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;}
+  @media (max-width:700px){.final-grid{grid-template-columns:1fr;}}
+  .final-grid .lb-row{font-size:18px;padding:9px 0;}
+  .final-grid .lb-row.podium .nm{color:var(--focus);}
+
+  .settings{position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);background:var(--card);border-left:1px solid var(--card-edge);z-index:60;padding:20px;overflow:auto;display:flex;flex-direction:column;gap:18px;}
+  .settings h2{font-family:"Unbounded",sans-serif;font-size:16px;margin:0;}
+  .settings h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);}
+  .settings .row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px;font-weight:600;}
+  .settings select{background:var(--bg-deep);color:var(--ink);border:1px solid var(--card-edge);border-radius:8px;padding:6px 10px;font:inherit;}
+  .switch{position:relative;width:46px;height:26px;flex:none;}
+  .switch input{opacity:0;width:0;height:0;}
+  .switch span{position:absolute;inset:0;background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:999px;cursor:pointer;transition:background .15s;}
+  .switch span::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--ink-dim);transition:transform .15s;}
+  .switch input:checked + span{background:var(--mint);}
+  .switch input:checked + span::after{transform:translateX(20px);background:#042417;}
+  .switch input:focus-visible + span{outline:3px solid var(--focus);outline-offset:2px;}
+  .muted-row{display:flex;justify-content:space-between;align-items:center;font-family:"JetBrains Mono",monospace;font-size:13px;padding:4px 0;}
+  .settings .note{font-size:12px;color:var(--ink-dim);line-height:1.5;}
 </style>
 </head>
 <body>
@@ -110,271 +115,433 @@
 <div class="center-screen" id="authScreen">
   <form class="auth-wrap card" id="authForm">
     <div class="brand" style="align-items:center;"><div class="mark">ИИ<span>гра</span></div><div class="sub">Пульт ведущего</div></div>
-    <input id="keyInput" placeholder="КЛЮЧ" autocomplete="off" required>
+    <input id="keyInput" type="password" placeholder="КЛЮЧ" autocomplete="off" required>
     <div class="auth-err" id="authErr"></div>
     <button class="btn primary" type="submit">Войти как ведущий</button>
   </form>
 </div>
 
-<div id="app">
+<div id="app" hidden style="flex:1;display:flex;flex-direction:column;">
+  <div class="conn-bar" id="connBar" hidden>Нет связи с сервером — переподключаемся…</div>
+  <div class="warn-bar" id="liveWarn" hidden>Вопросы трансляции не загружены — сейчас играется вариант 1, который доступен и в самостоятельном режиме. Задайте LIVE_QUESTIONS на сервере.</div>
+
   <div class="topbar">
-    <div class="brand">
-      <div class="mark">ИИ<span>гра</span><span class="ml-badge">ML hardcore</span></div>
-      <div class="sub">Своя игра · 5 тем · 25 вопросов об ИИ</div>
-    </div>
-    <div class="join-info">
+    <div class="brand"><div class="mark">ИИ<span>гра</span></div><div class="sub">Своя игра про ИИ</div></div>
+    <div class="join">
       <img id="qrImg" alt="QR-код для входа в игру">
-      <div>
-        <div class="url" id="joinUrl">—</div>
-        <div class="count"><span id="playerCount">0</span> игроков на связи</div>
-      </div>
+      <div><div class="url" id="joinUrl"></div><div class="hint">Регистрация по ссылке или QR</div></div>
     </div>
-    <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
-      <a class="btn ghost reset-btn" href="/solo" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;">Соло-режим</a>
-      <a class="btn ghost reset-btn" href="/verify" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;">Проверить код</a>
-      <button class="btn ghost reset-btn" id="resetBtn" type="button">Начать заново</button>
+    <div class="stats">
+      <div class="stat"><div class="n" id="stOnline">0</div><div class="l">онлайн</div></div>
+      <div class="stat"><div class="n" id="stReg">0</div><div class="l">зарегистрировано</div></div>
+      <div class="stat"><div class="n" id="stPart">0</div><div class="l">в рейтинге</div></div>
     </div>
+    <div class="phase" id="phaseLabel"></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn primary" type="button" id="voteBtn">Начать голосование</button>
+    <button class="btn" type="button" id="reopenBtn" hidden>Вернуться к вопросу</button>
+    <button class="btn" type="button" id="finishBtn">Показать итоги</button>
+    <button class="btn" type="button" id="settingsBtn" style="margin-left:auto">Настройки</button>
   </div>
 
   <div class="layout">
     <div class="board" id="board"></div>
-    <div class="side card">
-      <h3>Лидерборд</h3>
-      <div id="lbList"></div>
+    <div class="side">
+      <div class="card">
+        <h3>Лидеры</h3>
+        <div id="lbList"></div>
+      </div>
+      <div class="card chat-card">
+        <div class="chat-head"><span>Чат</span><span id="chatState" style="font-size:12px;color:var(--ink-dim)"></span></div>
+        <div class="chat-list" id="chatList"></div>
+        <form class="chat-form" id="chatForm">
+          <input id="chatInput" maxlength="200" placeholder="Написать от имени ведущего" autocomplete="off">
+          <button class="btn primary" type="submit">➤</button>
+        </form>
+      </div>
     </div>
   </div>
 </div>
 
-<div class="veil" id="veil" hidden>
-  <div class="stage-card card">
+<!-- question on stage -->
+<div class="veil" id="qVeil" hidden>
+  <div class="stage card">
     <div class="pills">
-      <span class="pill cat" id="pillCat"></span>
-      <span class="pill pts" id="pillPts"></span>
-      <span class="live-stat" id="liveStat">0 ответили</span>
+      <span class="pill cat" id="qCat"></span>
+      <span class="pill pts" id="qPts"></span>
+      <span class="live-stat" id="liveStat"></span>
     </div>
-    <div class="timer-track"><div class="timer-fill" id="timerFill"></div></div>
+    <div class="timer-track" id="timerTrack"><div class="timer-fill" id="timerFill"></div></div>
     <p class="q-text" id="qText"></p>
     <div class="opt-grid" id="optGrid"></div>
-    <div class="action-row" id="actionRow">
-      <button class="btn primary" id="revealBtn" type="button">Показать ответ</button>
-      <button class="btn ghost" id="cancelBtn" type="button">Отменить вопрос</button>
+    <div class="action-row" id="qActions">
+      <button class="btn primary" type="button" id="revealBtn">Показать ответ</button>
+      <button class="btn ghost" type="button" id="cancelBtn">Отменить вопрос</button>
     </div>
-    <div class="action-row" id="closeRow" hidden>
-      <button class="btn primary" id="closeBtn" type="button">Вернуться к табло</button>
+    <div class="action-row" id="afterActions" hidden>
+      <button class="btn primary" type="button" id="toBoardBtn">К табло</button>
+      <button class="btn" type="button" id="voteNextBtn">Голосование за следующий</button>
+      <span id="lastNote" style="color:var(--ink-dim);font-weight:700" hidden>Это был последний вопрос — сейчас откроются итоги</span>
     </div>
   </div>
 </div>
+
+<!-- final leaderboard on stage -->
+<div class="veil" id="finalVeil" hidden>
+  <div class="stage card">
+    <p class="final-title">Итоги ИИгры</p>
+    <p class="final-sub" id="finalSub"></p>
+    <div class="final-grid" id="finalGrid"></div>
+    <div class="action-row" style="margin-top:18px"><button class="btn" type="button" id="finalClose">Скрыть</button></div>
+  </div>
+</div>
+
+<!-- settings drawer -->
+<aside class="settings" id="settings" hidden>
+  <div class="row"><h2>Настройки</h2><button class="btn ghost" type="button" id="settingsClose">Закрыть</button></div>
+
+  <section>
+    <h4>Чат</h4>
+    <div class="row"><span>Чат включён</span><label class="switch"><input type="checkbox" id="chatEnabled"><span></span></label></div>
+    <div class="row" style="margin-top:10px"><span>Писать не чаще, чем раз в</span>
+      <select id="slowSel"><option value="0">без ограничений</option><option value="3">3 с</option><option value="5">5 с</option><option value="10">10 с</option><option value="30">30 с</option><option value="60">60 с</option></select>
+    </div>
+    <p class="note">Чтобы удалить сообщение или замьютить игрока, наведите на сообщение в чате. Мат автоматически заменяется звёздочками.</p>
+    <h4 style="margin-top:12px">Замьюченные игроки</h4>
+    <div id="mutedList" class="note">Никого</div>
+  </section>
+
+  <section>
+    <h4>Самостоятельные варианты</h4>
+    <div class="row"><span>Открыты для игроков</span><label class="switch"><input type="checkbox" id="soloOpen"><span></span></label></div>
+    <p class="note">11 вариантов + пасхальный ML-хардкор (5 нажатий на логотип во вкладке «Варианты»). За каждый пройденный вариант игрок получает код приза. Обычно включают после трансляции.</p>
+  </section>
+
+  <section>
+    <h4>Выгрузки и проверка</h4>
+    <div class="row" style="justify-content:flex-start;flex-wrap:wrap">
+      <button class="btn" type="button" id="exportLb">Рейтинг (CSV)</button>
+      <button class="btn" type="button" id="exportCodes">Коды призов (CSV)</button>
+      <a class="btn" href="/verify" target="_blank" rel="noopener" style="text-decoration:none">Проверить код</a>
+    </div>
+  </section>
+
+  <section>
+    <h4>Опасная зона</h4>
+    <button class="btn ghost" type="button" id="resetBtn">Сбросить игру и все очки</button>
+    <p class="note">Обнуляет очки всех игроков и открывает все вопросы заново. Аккаунты, чат и коды призов сохраняются.</p>
+  </section>
+</aside>
 
 <script>
 (function(){
   "use strict";
+  var LETTERS = ["А","Б","В","Г"];
+  function $(id){ return document.getElementById(id); }
+  function el(tag, cls, text){ var e = document.createElement(tag); if(cls) e.className = cls; if(text !== undefined) e.textContent = text; return e; }
+  var PHASES = {idle: "Табло", voting: "Идёт голосование", question: "Вопрос открыт", locked: "Время вышло", revealed: "Ответ показан", finished: "Игра окончена"};
 
-  var authScreen = document.getElementById("authScreen");
-  var authForm = document.getElementById("authForm");
-  var authErr = document.getElementById("authErr");
-  var app = document.getElementById("app");
+  var H = {key: null, phase: "idle", used: {}, current: null, vote: null, voteWinner: null, lastReveal: null,
+           top: [], participants: 0, online: 0, registered: 0, categories: [], points: [], qSeconds: 30, offset: 0,
+           settings: {}, muted: [], answered: 0, stageHidden: false};
+  try{ H.key = sessionStorage.getItem("iigra-host-key"); }catch(e){}
 
-  var boardEl = document.getElementById("board");
-  var lbList = document.getElementById("lbList");
-  var playerCountEl = document.getElementById("playerCount");
-  var qrImg = document.getElementById("qrImg");
-  var joinUrlEl = document.getElementById("joinUrl");
-  var resetBtn = document.getElementById("resetBtn");
+  var joinUrl = location.origin + "/";
+  $("joinUrl").textContent = location.host;
+  $("qrImg").src = "/qr?data=" + encodeURIComponent(joinUrl);
 
-  var veil = document.getElementById("veil");
-  var pillCat = document.getElementById("pillCat");
-  var pillPts = document.getElementById("pillPts");
-  var liveStat = document.getElementById("liveStat");
-  var qText = document.getElementById("qText");
-  var optGrid = document.getElementById("optGrid");
-  var timerFill = document.getElementById("timerFill");
-  var actionRow = document.getElementById("actionRow");
-  var closeRow = document.getElementById("closeRow");
-  var revealBtn = document.getElementById("revealBtn");
-  var cancelBtn = document.getElementById("cancelBtn");
-  var closeBtn = document.getElementById("closeBtn");
+  // ------------------------------------------------ websocket
+  var ws = null, retry = 0;
+  function connect(){
+    var proto = location.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(proto + "//" + location.host + "/ws");
+    ws.onopen = function(){ retry = 0; $("connBar").hidden = true; if(H.key) send({type: "host_auth", key: H.key}); };
+    ws.onmessage = function(e){ var m; try{ m = JSON.parse(e.data); }catch(x){ return; } onMessage(m); };
+    ws.onclose = function(){ $("connBar").hidden = $("app").hidden; setTimeout(connect, Math.min(10000, 1000 * Math.pow(2, retry++))); };
+  }
+  function send(obj){ if(ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+  setInterval(function(){ send({type: "ping"}); }, 25000);
+  connect();
 
-  var categories = [];
-  var pointValues = [100,200,300,400,500];
-  var usedMap = {};
-  var TOTAL_SECONDS = 20;
-  var timerRAF = null;
-
-  var joinUrl = location.origin + "/play";
-  joinUrlEl.textContent = joinUrl;
-  qrImg.src = "/qr?data=" + encodeURIComponent(joinUrl);
-
-  var proto = location.protocol === "https:" ? "wss:" : "ws:";
-  var ws = new WebSocket(proto + "//" + location.host + "/ws");
-  function send(obj){ if(ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
-
-  ws.addEventListener("close", function(){
-    authErr.textContent = "";
-    document.title = "ИИгра — соединение потеряно";
-    var banner = document.createElement("div");
-    banner.textContent = "Соединение с сервером потеряно — обновите страницу";
-    banner.style.cssText = "position:fixed;top:0;left:0;right:0;background:var(--bad);color:#2b0506;text-align:center;padding:10px;font-weight:800;z-index:100;";
-    document.body.appendChild(banner);
-  });
-
-  authForm.addEventListener("submit", function(e){
+  $("authForm").addEventListener("submit", function(e){
     e.preventDefault();
-    send({type:"host_auth", key: document.getElementById("keyInput").value.trim()});
+    H.key = $("keyInput").value.trim();
+    send({type: "host_auth", key: H.key});
   });
+
+  function serverNow(){ return Date.now() / 1000 + H.offset; }
+
+  function onMessage(m){
+    switch(m.type){
+      case "host_ok":
+        try{ sessionStorage.setItem("iigra-host-key", H.key); }catch(e){}
+        $("authScreen").hidden = true; $("app").hidden = false;
+        break;
+      case "error":
+        $("authErr").textContent = m.message;
+        try{ sessionStorage.removeItem("iigra-host-key"); }catch(e){}
+        break;
+      case "sync":
+        if(m.server_now) H.offset = m.server_now - Date.now() / 1000;
+        H.phase = m.phase; H.used = m.used; H.current = m.current; H.vote = m.vote; H.voteWinner = m.vote_winner;
+        H.lastReveal = m.last_reveal; H.top = m.top; H.participants = m.participants; H.online = m.online; H.registered = m.registered;
+        H.categories = m.categories; H.points = m.points; H.qSeconds = m.question_seconds; H.settings = m.settings;
+        H.answered = m.current ? m.current.answered : 0;
+        if(m.muted) H.muted = m.muted;
+        $("liveWarn").hidden = m.live_unique !== false;
+        resetChat(m.chat || []);
+        H.stageHidden = false;
+        renderAll();
+        break;
+      case "stats": H.online = m.online; H.registered = m.registered; renderStats(); break;
+      case "settings": H.settings = m.settings; renderSettings(); break;
+      case "muted_list": H.muted = m.muted; renderSettings(); break;
+      case "vote_started": H.phase = "voting"; H.vote = {tallies: {}, total: 0}; H.voteWinner = null; renderAll(); break;
+      case "vote_tallies": if(H.vote){ H.vote.tallies = m.tallies; H.vote.total = m.total; renderBoard(); renderControls(); } break;
+      case "vote_ended": H.phase = "idle"; H.vote = null; H.voteWinner = m.winner; renderAll(); break;
+      case "question_opened":
+        if(m.server_now) H.offset = m.server_now - Date.now() / 1000;
+        H.phase = "question"; H.current = m.data; H.answered = 0; H.lastReveal = null; H.vote = null; H.voteWinner = null; H.stageHidden = false;
+        renderAll(); break;
+      case "answer_count": H.answered = m.count; H.online = m.online; renderStage(); break;
+      case "time_up": H.phase = "locked"; renderAll(); break;
+      case "cancelled": H.phase = "idle"; H.current = null; renderAll(); break;
+      case "revealed":
+        H.phase = "revealed"; H.lastReveal = m; H.used = m.used; H.top = m.top; H.participants = m.participants; H.current = null;
+        renderAll(); break;
+      case "finished": H.phase = "finished"; H.top = m.top; H.participants = m.participants; H.stageHidden = false; renderAll(); break;
+      case "chat": addChat(m.messages); break;
+      case "chat_delete": removeChat(m.ids); break;
+    }
+  }
+
+  // ------------------------------------------------ render
+  function renderAll(){ renderStats(); renderControls(); renderBoard(); renderLeaders(); renderStage(); renderFinal(); renderSettings(); }
+
+  function renderStats(){
+    $("stOnline").textContent = H.online; $("stReg").textContent = H.registered; $("stPart").textContent = H.participants;
+    $("phaseLabel").textContent = PHASES[H.phase] || H.phase;
+  }
+
+  function renderControls(){
+    var vb = $("voteBtn");
+    if(H.phase === "voting"){
+      vb.textContent = "Завершить голосование" + (H.vote ? " (" + H.vote.total + ")" : "");
+      vb.disabled = false;
+    } else {
+      vb.textContent = "Начать голосование";
+      vb.disabled = !(H.phase === "idle" || H.phase === "revealed");
+    }
+    var stageActive = (H.phase === "question" || H.phase === "locked" || H.phase === "revealed");
+    $("reopenBtn").hidden = !(stageActive && H.stageHidden);
+    $("finishBtn").textContent = H.phase === "finished" ? "Показать итоги на экране" : "Показать итоги";
+  }
+  $("voteBtn").addEventListener("click", function(){ send({type: H.phase === "voting" ? "end_vote" : "start_vote"}); });
+  $("voteNextBtn").addEventListener("click", function(){ send({type: "start_vote"}); });
+  $("finishBtn").addEventListener("click", function(){
+    if(H.phase === "finished"){ H.stageHidden = false; renderFinal(); return; }
+    if(confirm("Завершить игру и показать всем итоговую таблицу? Неоткрытые вопросы останутся неоткрытыми.")) send({type: "finish"});
+  });
+  $("reopenBtn").addEventListener("click", function(){ H.stageHidden = false; renderAll(); });
 
   function renderBoard(){
-    boardEl.innerHTML = "";
-    categories.forEach(function(name){
-      var h = document.createElement("div");
-      h.className = "cat-head";
-      h.textContent = name;
-      boardEl.appendChild(h);
-    });
-    for(let li=0; li<5; li++){
-      categories.forEach(function(name, ci){
-        var key = ci + "-" + li;
-        var btn = document.createElement("button");
-        btn.className = "tile";
-        btn.type = "button";
-        btn.textContent = pointValues[li];
-        btn.disabled = !!usedMap[key];
-        btn.addEventListener("click", function(){
-          send({type:"open_question", ci: ci, li: li});
-        });
-        boardEl.appendChild(btn);
-      });
+    var b = $("board"); b.innerHTML = "";
+    H.categories.forEach(function(name){ b.appendChild(el("div", "cat-head", name)); });
+    var voting = H.phase === "voting" && H.vote;
+    var canOpen = H.phase === "idle" || H.phase === "voting" || H.phase === "revealed";
+    for(var li = 0; li < H.points.length; li++){
+      for(var ci = 0; ci < H.categories.length; ci++){
+        (function(ci, li){
+          var key = ci + "-" + li;
+          var t = el("button", "tile"); t.type = "button";
+          if(H.used[key]){ t.disabled = true; t.textContent = "✓"; }
+          else {
+            t.appendChild(el("span", "", H.points[li]));
+            if(voting){
+              var n = H.vote.tallies[key] || 0, pct = H.vote.total ? Math.round(n / H.vote.total * 100) : 0;
+              t.appendChild(el("span", "votes", n + " · " + pct + "%"));
+              var bar = el("span", "bar"); bar.style.width = pct + "%"; t.appendChild(bar);
+            }
+            if(H.voteWinner === key) t.classList.add("winner");
+            t.disabled = !canOpen;
+            t.addEventListener("click", function(){
+              if(H.phase === "voting" && !confirm("Голосование ещё идёт. Открыть этот вопрос сразу?")) return;
+              send({type: "open_question", ci: ci, li: li});
+            });
+          }
+          b.appendChild(t);
+        })(ci, li);
+      }
     }
   }
 
-  function renderLeaderboard(rows){
-    lbList.innerHTML = "";
-    if(!rows.length){
-      lbList.innerHTML = '<div style="color:var(--ink-faint);font-size:13px;">Пока никто не набрал очков</div>';
-      return;
-    }
-    rows.forEach(function(r, i){
-      var row = document.createElement("div");
-      row.className = "lb-row";
-      row.innerHTML =
-        '<span class="rank">'+(i+1)+'</span>' +
-        '<span class="nm"></span>' +
-        '<span class="sc">'+r.score+'</span>';
-      row.querySelector(".nm").textContent = r.name;
-      lbList.appendChild(row);
-    });
+  function lbRow(r, i, extra){
+    var row = el("div", "lb-row" + (extra || ""));
+    row.appendChild(el("span", "pl", (i + 1) + "."));
+    row.appendChild(el("span", "nm", "#" + r.id));
+    row.appendChild(el("span", "sc", r.score));
+    return row;
+  }
+  function renderLeaders(){
+    var box = $("lbList"); box.innerHTML = "";
+    if(!H.top.length){ box.appendChild(el("div", "", "Пока никто не набрал очков")); return; }
+    H.top.slice(0, 15).forEach(function(r, i){ box.appendChild(lbRow(r, i)); });
   }
 
-  function stopTimer(){ if(timerRAF){ cancelAnimationFrame(timerRAF); timerRAF=null; } }
-  function startTimer(deadline){
-    stopTimer();
-    function tick(){
-      var remain = deadline - (Date.now()/1000);
-      var frac = Math.max(0, Math.min(1, remain/TOTAL_SECONDS));
-      timerFill.style.width = (frac*100)+"%";
-      timerFill.style.background = frac < 0.25 ? "var(--bad)" : (frac < 0.5 ? "var(--focus)" : "var(--mint)");
+  var timerRAF = null;
+  function runTimer(deadline){
+    cancelAnimationFrame(timerRAF);
+    (function tick(){
+      var remain = deadline - serverNow();
+      var frac = Math.max(0, Math.min(1, remain / H.qSeconds));
+      $("timerFill").style.width = (frac * 100) + "%";
+      $("timerFill").style.background = frac < 0.25 ? "var(--bad)" : (frac < 0.5 ? "var(--focus)" : "var(--mint)");
       if(remain > 0) timerRAF = requestAnimationFrame(tick);
-    }
-    tick();
+    })();
   }
 
-  var letters = ["А","Б","В","Г"];
+  function renderStage(){
+    var revealed = H.phase === "revealed" && H.lastReveal;
+    var q = revealed ? H.lastReveal.question : H.current;
+    var show = !H.stageHidden && q && (H.phase === "question" || H.phase === "locked" || revealed);
+    $("qVeil").hidden = !show;
+    renderControls();
+    if(!show){ cancelAnimationFrame(timerRAF); return; }
+    $("qCat").textContent = q.category;
+    $("qPts").textContent = q.points + " очков";
+    $("qText").textContent = q.q;
+    $("timerTrack").hidden = H.phase !== "question";
+    if(H.phase === "question") runTimer(H.current.deadline); else cancelAnimationFrame(timerRAF);
 
-  function openVeil(data, answeredCount){
-    pillCat.textContent = data.category;
-    pillPts.textContent = data.points + " очков";
-    liveStat.textContent = (answeredCount||0) + " ответили";
-    qText.textContent = data.q;
-    optGrid.innerHTML = "";
-    data.options.forEach(function(opt, idx){
-      var c = document.createElement("div");
-      c.className = "opt-cell";
-      c.id = "opt-" + idx;
-      c.innerHTML = '<span class="letter">'+letters[idx]+'</span><span></span>';
-      c.querySelector("span:last-child").textContent = opt;
-      optGrid.appendChild(c);
+    var grid = $("optGrid"); grid.innerHTML = "";
+    q.options.forEach(function(text, idx){
+      var c = el("div", "opt-cell");
+      var share = 0;
+      if(revealed){
+        share = H.lastReveal.answered ? Math.round(H.lastReveal.dist[idx] / H.lastReveal.answered * 100) : 0;
+        var f = el("span", "fill"); f.style.width = share + "%"; c.appendChild(f);
+        if(idx === H.lastReveal.correct) c.classList.add("correct");
+      }
+      c.appendChild(el("span", "letter", LETTERS[idx]));
+      c.appendChild(el("span", "label", text));
+      if(revealed) c.appendChild(el("span", "share", H.lastReveal.dist[idx] + " · " + share + "%"));
+      grid.appendChild(c);
     });
-    actionRow.hidden = false;
-    closeRow.hidden = true;
-    startTimer(data.deadline);
-    veil.hidden = false;
+
+    if(revealed){
+      var rv = H.lastReveal, pct = rv.answered ? Math.round(rv.correct_count / rv.answered * 100) : 0;
+      $("liveStat").textContent = "Верно: " + rv.correct_count + " из " + rv.answered + " (" + pct + "%)";
+    } else {
+      $("liveStat").textContent = "Ответили " + H.answered + " из " + H.online + (H.phase === "locked" ? " · время вышло" : "");
+    }
+    $("qActions").hidden = !!revealed;
+    $("afterActions").hidden = !revealed;
+    $("lastNote").hidden = !(revealed && H.lastReveal.last);
+    $("voteNextBtn").hidden = !!(revealed && H.lastReveal.last);
   }
+  $("revealBtn").addEventListener("click", function(){ send({type: "reveal"}); });
+  $("cancelBtn").addEventListener("click", function(){
+    if(confirm("Отменить вопрос? Ответы игроков не засчитаются, плитка останется на табло.")) send({type: "cancel_question"});
+  });
+  $("toBoardBtn").addEventListener("click", function(){ H.stageHidden = true; renderStage(); });
 
-  revealBtn.addEventListener("click", function(){ send({type:"reveal"}); });
-  cancelBtn.addEventListener("click", function(){ send({type:"cancel_question"}); veil.hidden = true; stopTimer(); });
-  closeBtn.addEventListener("click", function(){ veil.hidden = true; });
+  function renderFinal(){
+    var show = H.phase === "finished" && !H.stageHidden;
+    $("finalVeil").hidden = !show;
+    if(!show) return;
+    $("finalSub").textContent = "Участников в рейтинге: " + H.participants;
+    var grid = $("finalGrid"); grid.innerHTML = "";
+    var rows = H.top.slice(0, 20);
+    var half = Math.ceil(rows.length / 2);
+    var left = el("div"), right = el("div");
+    rows.forEach(function(r, i){ (i < half ? left : right).appendChild(lbRow(r, i, i < 3 ? " podium" : "")); });
+    grid.appendChild(left); grid.appendChild(right);
+  }
+  $("finalClose").addEventListener("click", function(){ H.stageHidden = true; renderFinal(); });
 
-  resetBtn.addEventListener("click", function(){
-    if(confirm("Сбросить счёт у всех игроков и открыть все вопросы заново?")){
-      send({type:"reset_game"});
-    }
+  // ------------------------------------------------ chat moderation
+  var nodes = {};
+  function colorFor(uid){ var h = (parseInt(uid, 10) || 0) * 47 % 360; return "hsl(" + h + " 75% 72%)"; }
+  function resetChat(list){ $("chatList").innerHTML = ""; nodes = {}; addChat(list); }
+  function addChat(msgs){
+    var list = $("chatList");
+    var stick = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+    msgs.forEach(function(m){
+      if(nodes[m.id]) return;
+      var d = el("div", "msg" + (m.host ? " host" : ""));
+      var who = el("span", "who", m.host ? "Ведущий" : "#" + m.uid);
+      if(!m.host) who.style.color = colorFor(m.uid);
+      d.appendChild(who);
+      d.appendChild(el("span", "text", m.text));
+      var acts = el("span", "acts");
+      var del = el("button", "", "Удалить"); del.type = "button";
+      del.addEventListener("click", function(){ send({type: "chat_delete", id: m.id}); });
+      acts.appendChild(del);
+      if(!m.host){
+        var mute = el("button", "", "Мут"); mute.type = "button";
+        mute.addEventListener("click", function(){
+          if(confirm("Запретить игроку #" + m.uid + " писать в чат и удалить его сообщения?")) send({type: "chat_mute", uid: m.uid, muted: true, purge: true});
+        });
+        acts.appendChild(mute);
+      }
+      d.appendChild(acts);
+      list.appendChild(d);
+      nodes[m.id] = d;
+    });
+    var ids = Object.keys(nodes).map(Number).sort(function(a, b){ return a - b; });
+    while(ids.length > 300){ var id = ids.shift(); nodes[id].remove(); delete nodes[id]; }
+    if(stick) list.scrollTop = list.scrollHeight;
+  }
+  function removeChat(ids){ ids.forEach(function(id){ if(nodes[id]){ nodes[id].remove(); delete nodes[id]; } }); }
+  $("chatForm").addEventListener("submit", function(e){
+    e.preventDefault();
+    var t = $("chatInput").value.trim();
+    if(t){ send({type: "chat", text: t}); $("chatInput").value = ""; }
   });
 
-  ws.addEventListener("message", function(evt){
-    var msg;
-    try{ msg = JSON.parse(evt.data); }catch(e){ return; }
-
-    switch(msg.type){
-      case "host_ok":
-        authScreen.style.display = "none";
-        app.style.display = "flex";
-        fetch("/api/board").then(function(r){return r.json();}).then(function(b){
-          categories = b.categories;
-          pointValues = b.points;
-          TOTAL_SECONDS = b.question_seconds;
-          document.body.classList.toggle("ml", !!b.hard);
-          renderBoard();
-        });
-        break;
-
-      case "error":
-        authErr.textContent = msg.message;
-        break;
-
-      case "sync":
-        usedMap = msg.used || {};
-        if(categories.length) renderBoard();
-        renderLeaderboard(msg.leaderboard || []);
-        playerCountEl.textContent = msg.player_count || 0;
-        if((msg.phase === "question" || msg.phase === "locked") && msg.current){
-          openVeil(msg.current, 0);
-        }
-        break;
-
-      case "player_count":
-        playerCountEl.textContent = msg.count;
-        break;
-
-      case "question_opened":
-        openVeil(msg.data, 0);
-        break;
-
-      case "answer_count":
-        liveStat.textContent = msg.count + " ответили";
-        break;
-
-      case "time_up":
-        actionRow.hidden = false;
-        break;
-
-      case "cancelled":
-        veil.hidden = true;
-        stopTimer();
-        break;
-
-      case "revealed":
-        stopTimer();
-        usedMap = msg.used || {};
-        renderBoard();
-        renderLeaderboard(msg.leaderboard || []);
-        document.querySelectorAll(".opt-cell").forEach(function(el, idx){
-          el.classList.toggle("correct", idx === msg.correct);
-        });
-        liveStat.textContent = msg.correct_count + " из " + msg.answered_count + " ответили верно";
-        actionRow.hidden = true;
-        closeRow.hidden = false;
-        break;
-    }
+  // ------------------------------------------------ settings
+  function renderSettings(){
+    var s = H.settings || {};
+    $("chatEnabled").checked = !!s.chat_enabled;
+    $("slowSel").value = String(s.slow || 0);
+    $("soloOpen").checked = !!s.solo_open;
+    $("chatState").textContent = s.chat_enabled ? (s.slow ? "раз в " + s.slow + " с" : "без ограничений") : "выключен";
+    var ml = $("mutedList"); ml.innerHTML = "";
+    if(!H.muted.length){ ml.textContent = "Никого"; return; }
+    H.muted.forEach(function(uid){
+      var row = el("div", "muted-row");
+      row.appendChild(el("span", "", "#" + uid));
+      var b = el("button", "btn ghost", "Вернуть"); b.type = "button"; b.style.padding = "4px 10px";
+      b.addEventListener("click", function(){ send({type: "chat_mute", uid: uid, muted: false}); });
+      row.appendChild(b);
+      ml.appendChild(row);
+    });
+  }
+  $("settingsBtn").addEventListener("click", function(){ $("settings").hidden = false; });
+  $("settingsClose").addEventListener("click", function(){ $("settings").hidden = true; });
+  $("chatEnabled").addEventListener("change", function(){ send({type: "chat_settings", enabled: this.checked}); });
+  $("slowSel").addEventListener("change", function(){ send({type: "chat_settings", slow: +this.value}); });
+  $("soloOpen").addEventListener("change", function(){ send({type: "set_solo_open", open: this.checked}); });
+  $("resetBtn").addEventListener("click", function(){
+    var word = prompt("Это обнулит очки всех игроков. Чтобы подтвердить, напишите СБРОС");
+    if(word && word.trim().toUpperCase() === "СБРОС") send({type: "reset_game"});
   });
+
+  function download(path, filename){
+    fetch(path, {headers: {"X-Host-Key": H.key}}).then(function(r){
+      if(!r.ok) throw new Error("Не удалось выгрузить: " + r.status);
+      return r.blob();
+    }).then(function(blob){
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+    }).catch(function(err){ alert(err.message); });
+  }
+  $("exportLb").addEventListener("click", function(){ download("/api/admin/leaderboard.csv", "iigra-leaderboard.csv"); });
+  $("exportCodes").addEventListener("click", function(){ download("/api/admin/codes.csv", "iigra-codes.csv"); });
 })();
 </script>
 </body>

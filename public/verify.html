@@ -59,12 +59,14 @@
     }).then(function(data){
       if(data.valid){
         var dt = new Date(data.completed_at * 1000);
+        var variant = data.variant === 'ML' ? 'ML-хардкор' : 'вариант ' + data.variant;
         result.className = "result ok";
         result.innerHTML =
           '<div class="line">✅ <b>Код действителен</b></div>' +
-          '<div class="line">Имя: <b>'+escapeHtml(data.name)+'</b></div>' +
-          '<div class="line">Результат: <b>'+data.score+' очков</b>' + (data.variant ? (data.variant === 'ML' ? ' · <b>ML-хардкор</b>' : ' · вариант '+data.variant) : '') + '</div>' +
-          '<div class="line">Пройдено: <b>'+dt.toLocaleString("ru-RU")+'</b></div>';
+          '<div class="line">ID игрока: <b>'+escapeHtml(data.id)+'</b></div>' +
+          '<div class="line">Пройден: <b>'+variant+'</b> · '+data.score+' очков</div>' +
+          '<div class="line">Когда: <b>'+dt.toLocaleString("ru-RU")+'</b></div>' +
+          '<div class="line">Всего вариантов пройдено этим игроком: <b>'+data.codes_total+'</b></div>';
       } else {
         result.className = "result bad";
         result.innerHTML = '<div class="line">❌ Такой код не найден</div>';
