@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Поднимает ИИгру на чистой Ubuntu 24.04: Python-окружение, автозапуск через systemd,
-# HTTPS через Caddy на бесплатном домене вида 1-2-3-4.sslip.io.
+# HTTPS через Caddy на бесплатном домене вида 1-2-3-4.sslip.io, фаервол (открыты только 22, 80, 443).
 #
 #   sudo bash setup_vm.sh --host-key МОЙКЛЮЧ [--domain game.example.ru] [--ip 1.2.3.4] [--no-https]
 #                         [--opens-at 2026-11-12T19:00:00+03:00] [--live-questions /path/live_questions.csv]
@@ -35,7 +35,7 @@ done
 
 echo "==> Пакеты"
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip git curl >/dev/null
+apt-get install -y -qq python3 python3-venv python3-pip git curl ufw sqlite3 >/dev/null
 if [[ $HTTPS -eq 1 ]]; then apt-get install -y -qq caddy >/dev/null; fi
 
 echo "==> Код"
@@ -98,6 +98,12 @@ EOF
 systemctl daemon-reload
 systemctl enable -q iigra
 systemctl restart iigra
+
+echo "==> Фаервол: открыты только SSH, HTTP и HTTPS"
+ufw allow 22/tcp >/dev/null
+ufw allow 80/tcp >/dev/null
+if [[ $HTTPS -eq 1 ]]; then ufw allow 443/tcp >/dev/null; ufw allow 443/udp >/dev/null; fi
+ufw --force enable >/dev/null
 
 public_ip() {
   # Yandex Cloud metadata first (no internet needed), then a few public echo services.
