@@ -80,6 +80,8 @@ async def main():
         assert ack["option"] == opt
     await pws[0].send(json.dumps({"type": "answer", "option": 3}))  # second answer must be ignored
     cnt = await recv_until(host, "answer_count")
+    while cnt["count"] < 3:  # counts are batched, so an early batch may be partial
+        cnt = await recv_until(host, "answer_count")
     assert cnt["count"] == 3, cnt
     await host.send(json.dumps({"type": "reveal"}))
     rev = await recv_until(pws[0], "revealed")
