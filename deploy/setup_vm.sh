@@ -2,7 +2,7 @@
 # Поднимает ИИгру на чистой Ubuntu 24.04: Python-окружение, автозапуск через systemd,
 # HTTPS через Caddy на бесплатном домене вида 1-2-3-4.sslip.io.
 #
-#   sudo bash setup_vm.sh --host-key МОЙКЛЮЧ [--domain game.example.ru] [--no-https]
+#   sudo bash setup_vm.sh --host-key МОЙКЛЮЧ [--domain game.example.ru] [--ip 1.2.3.4] [--no-https]
 #                         [--opens-at 2026-11-12T19:00:00+03:00] [--live-questions /path/live_questions.csv]
 #
 # Повторный запуск безопасен: обновит код и перезапустит сервис, база игроков сохранится.
@@ -16,6 +16,7 @@ DOMAIN=""
 HTTPS=1
 OPENS_AT=""
 LIVE_FILE=""
+PUBLIC_IP=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,6 +25,7 @@ while [[ $# -gt 0 ]]; do
     --no-https) HTTPS=0; shift ;;
     --opens-at) OPENS_AT="$2"; shift 2 ;;
     --live-questions) LIVE_FILE="$2"; shift 2 ;;
+    --ip) PUBLIC_IP="$2"; shift 2 ;;
     *) echo "Неизвестный параметр: $1"; exit 1 ;;
   esac
 done
@@ -97,7 +99,19 @@ systemctl daemon-reload
 systemctl enable -q iigra
 systemctl restart iigra
 
-IP=$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')
+public_ip() {
+  # Yandex Cloud metadata first (no internet needed), then a few public echo services.
+  curl -fsS -m 3 -H "Metadata-Flavor: Google" \
+    http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip 2>/dev/null && return
+  for u in https://ifconfig.me https://icanhazip.com https://api.ipify.org https://ipinfo.io/ip; do
+    curl -fsS -m 5 "$u" 2>/dev/null && return
+  done
+}
+IP="${PUBLIC_IP:-$(public_ip | tr -d '[:space:]')}"
+if [[ -z "$IP" && -z "$DOMAIN" ]]; then
+  echo "Не удалось узнать публичный IP. Запустите ещё раз с --ip АДРЕС (его видно в консоли облака) или --domain."
+  exit 1
+fi
 if [[ $HTTPS -eq 1 ]]; then
   [[ -n "$DOMAIN" ]] || DOMAIN="${IP//./-}.sslip.io"
   cat > /etc/caddy/Caddyfile <<EOF
