@@ -24,7 +24,7 @@ import secrets
 import time
 from collections import deque
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import qrcode
@@ -989,8 +989,11 @@ def csv_response(filename, header, rows):
     )
 
 
+MSK = timezone(timedelta(hours=3))  # Russia has no DST; Render servers run in UTC
+
+
 def iso(ts):
-    return datetime.fromtimestamp(ts, timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.fromtimestamp(ts, MSK).strftime("%Y-%m-%d %H:%M:%S")
 
 
 @app.get("/api/admin/leaderboard.csv")
