@@ -35,7 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from db import DB
-from questions import HARD, POINTS, SETS, _question
+from questions import HARD, POINTS, SETS, QuestionsError, _question, load_single_board, read_text
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data"))
@@ -57,33 +57,47 @@ print("=" * 50, flush=True)
 # ---------------------------------------------------------------- questions
 
 def load_live_board():
-    """The broadcast set is kept out of the public repo: LIVE_QUESTIONS env (base64 JSON) or live_questions.json.
-    Without either (e.g. a local game) LIVE_VARIANT=1..11 picks one of the public variants instead."""
+    """The broadcast set is kept out of the public repo: LIVE_QUESTIONS env (base64 of the CSV)
+    or live_questions.csv next to the server. Without either (e.g. a local game) LIVE_VARIANT=1..N
+    picks one of the public variants. Returns (board, unique, error text for the host)."""
     raw = os.environ.get("LIVE_QUESTIONS")
-    path = BASE_DIR / "live_questions.json"
-    if raw or path.exists():
-        try:
-            data = json.loads(base64.b64decode(raw).decode("utf-8") if raw else path.read_text("utf-8"))
-            board = [
-                {"name": name, "questions": [_question(POINTS[li], tuple(q)) for li, q in enumerate(cat)]}
-                for name, cat in zip(data["categories"], data["questions"])
-            ]
-            assert len(board) == 5 and all(len(c["questions"]) == 5 for c in board)
-            return board, True
-        except Exception as e:
-            print("!!! Вопросы трансляции не загружены:", e, flush=True)
+    csv_path, json_path = BASE_DIR / "live_questions.csv", BASE_DIR / "live_questions.json"
+    try:
+        if raw:
+            text, source = base64.b64decode(raw).decode("utf-8-sig"), "LIVE_QUESTIONS"
+        elif csv_path.exists():
+            text, source = read_text(csv_path), csv_path.name
+        elif json_path.exists():
+            text, source = json_path.read_text("utf-8"), json_path.name
+        else:
+            text = None
+        if text is not None:
+            if text.lstrip().startswith("{"):  # older JSON format
+                data = json.loads(text)
+                board = [
+                    {"name": name, "questions": [_question(POINTS[li], tuple(q)) for li, q in enumerate(cat)]}
+                    for name, cat in zip(data["categories"], data["questions"])
+                ]
+            else:
+                board = load_single_board(text, source)
+            return board, True, None
+    except (QuestionsError, ValueError, KeyError) as e:
+        print("!!! Вопросы трансляции не загружены:\n", e, flush=True)
+        error = str(e)
+    else:
+        error = None
     variant = min(max(int(os.environ.get("LIVE_VARIANT", 1)), 1), len(SETS))
-    print(f"Игра идёт на варианте {variant} из questions.py", flush=True)
-    return SETS[variant - 1], False
+    print(f"Игра идёт на варианте {variant} из questions.csv", flush=True)
+    return SETS[variant - 1], False, error
 
 
-LIVE_BOARD, LIVE_UNIQUE = load_live_board()
+LIVE_BOARD, LIVE_UNIQUE, LIVE_ERROR = load_live_board()
 N_CATS = len(LIVE_BOARD)
 N_LEVELS = len(POINTS)
 TOTAL_TILES = N_CATS * N_LEVELS
 
-VARIANTS = SETS + [HARD]  # self-paced; the last one is the hidden ML set
-ML_INDEX = len(SETS)
+VARIANTS = SETS + ([HARD] if HARD else [])  # self-paced; the hidden ML set goes last
+ML_INDEX = len(SETS) if HARD else -1
 
 
 def tile_key(ci, li):
@@ -432,6 +446,7 @@ def sync_payload(uid=None, host=False):
     }
     if host:
         payload["live_unique"] = LIVE_UNIQUE
+        payload["live_error"] = LIVE_ERROR
         payload["muted"] = [u for u, p in players.items() if p["muted"]]
     return payload
 
@@ -864,6 +879,7 @@ async def api_me(authorization: str | None = Header(None)):
         "total": TOTAL_SOLO,
         "variants": [attempt_summary(v, rows.get(v)) for v in range(len(SETS))],
         "ml": attempt_summary(ML_INDEX, rows[ML_INDEX]) if ML_INDEX in rows else None,
+        "has_ml": ML_INDEX >= 0,
     }
 
 

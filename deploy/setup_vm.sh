@@ -3,7 +3,7 @@
 # HTTPS через Caddy на бесплатном домене вида 1-2-3-4.sslip.io.
 #
 #   sudo bash setup_vm.sh --host-key МОЙКЛЮЧ [--domain game.example.ru] [--no-https]
-#                         [--opens-at 2026-11-12T19:00:00+03:00] [--live-questions /path/live_questions.json]
+#                         [--opens-at 2026-11-12T19:00:00+03:00] [--live-questions /path/live_questions.csv]
 #
 # Повторный запуск безопасен: обновит код и перезапустит сервис, база игроков сохранится.
 set -euo pipefail
@@ -43,13 +43,18 @@ else
   git clone -q "$REPO" "$APP_DIR"
 fi
 if [[ -n "$LIVE_FILE" ]]; then
-  cp "$LIVE_FILE" "$APP_DIR/live_questions.json"
+  cp "$LIVE_FILE" "$APP_DIR/live_questions.${LIVE_FILE##*.}"
 fi
-[[ -f "$APP_DIR/live_questions.json" ]] || echo "!!  live_questions.json не найден — будет играться обычный вариант (см. GUIDE.md)"
+if [[ ! -f "$APP_DIR/live_questions.csv" && ! -f "$APP_DIR/live_questions.json" ]]; then
+  echo "!!  live_questions.csv не найден — будет играться обычный вариант (см. GUIDE.md)"
+fi
 
 echo "==> Python-окружение"
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
+
+echo "==> Проверка таблиц с вопросами"
+(cd "$APP_DIR" && .venv/bin/python tools/check_questions.py)
 
 id iigra >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin iigra
 mkdir -p "$DATA_DIR"

@@ -952,7 +952,7 @@
     }
     $("soloIntroText").textContent = "В каждом варианте — 25 других вопросов, без таймера, в своём темпе. Каждый вариант проходится один раз. После всех 25 вопросов вы получите код — его можно обменять на приз.";
     SOLO.me.variants.forEach(function(v){ box.appendChild(variantCard(v, false)); });
-    if(SOLO.me.ml || lsGet(LS_ML)){
+    if(SOLO.me.has_ml && (SOLO.me.ml || lsGet(LS_ML))){
       var mlv = SOLO.me.ml || {variant: SOLO.me.variants.length, label: "ML", status: "new", answered: 0, score: 0};
       box.appendChild(variantCard(mlv, true));
     }

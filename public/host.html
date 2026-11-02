@@ -292,6 +292,7 @@
         H.answered = m.current ? m.current.answered : 0;
         if(m.muted) H.muted = m.muted;
         $("liveWarn").hidden = m.live_unique !== false;
+        if(m.live_error) $("liveWarn").textContent = "Файл вопросов трансляции с ошибкой — играется обычный вариант. Исправьте и перезапустите сервер: " + m.live_error;
         H.liveOpen = m.live_open; H.liveOpensAt = m.live_opens_at;
         renderGate();
         resetChat(m.chat || []);
