@@ -23,6 +23,7 @@ import re
 import secrets
 import time
 from collections import deque
+from urllib.parse import unquote
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -41,6 +42,12 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 QUESTION_SECONDS = int(os.environ.get("QUESTION_SECONDS", 30))
+# Players can't join the broadcast (vote, answer, chat) before this moment.
+LIVE_OPENS_AT = datetime.fromisoformat(os.environ.get("LIVE_OPENS_AT", "2026-11-12T00:00:00+03:00")).timestamp()
+
+
+def live_open():
+    return time.time() >= LIVE_OPENS_AT
 HOST_KEY = os.environ.get("HOST_KEY") or secrets.token_hex(3)
 print("=" * 50)
 print(f"  КЛЮЧ ВЕДУЩЕГО: {HOST_KEY}")
@@ -50,22 +57,24 @@ print("=" * 50, flush=True)
 # ---------------------------------------------------------------- questions
 
 def load_live_board():
-    """The broadcast set is kept out of the public repo: LIVE_QUESTIONS env (base64 JSON) or live_questions.json."""
-    try:
-        raw = os.environ.get("LIVE_QUESTIONS")
-        if raw:
-            data = json.loads(base64.b64decode(raw).decode("utf-8"))
-        else:
-            data = json.loads((BASE_DIR / "live_questions.json").read_text("utf-8"))
-        board = [
-            {"name": name, "questions": [_question(POINTS[li], tuple(q)) for li, q in enumerate(cat)]}
-            for name, cat in zip(data["categories"], data["questions"])
-        ]
-        assert len(board) == 5 and all(len(c["questions"]) == 5 for c in board)
-        return board, True
-    except Exception as e:
-        print("!!! Вопросы трансляции не загружены:", e, "— используется вариант 1", flush=True)
-        return SETS[0], False
+    """The broadcast set is kept out of the public repo: LIVE_QUESTIONS env (base64 JSON) or live_questions.json.
+    Without either (e.g. a local game) LIVE_VARIANT=1..11 picks one of the public variants instead."""
+    raw = os.environ.get("LIVE_QUESTIONS")
+    path = BASE_DIR / "live_questions.json"
+    if raw or path.exists():
+        try:
+            data = json.loads(base64.b64decode(raw).decode("utf-8") if raw else path.read_text("utf-8"))
+            board = [
+                {"name": name, "questions": [_question(POINTS[li], tuple(q)) for li, q in enumerate(cat)]}
+                for name, cat in zip(data["categories"], data["questions"])
+            ]
+            assert len(board) == 5 and all(len(c["questions"]) == 5 for c in board)
+            return board, True
+        except Exception as e:
+            print("!!! Вопросы трансляции не загружены:", e, flush=True)
+    variant = min(max(int(os.environ.get("LIVE_VARIANT", 1)), 1), len(SETS))
+    print(f"Игра идёт на варианте {variant} из questions.py", flush=True)
+    return SETS[variant - 1], False
 
 
 LIVE_BOARD, LIVE_UNIQUE = load_live_board()
@@ -201,6 +210,11 @@ PBKDF2_ROUNDS = 20_000  # game accounts guard nothing valuable; keeps a 1000-per
 
 def hash_pw(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ROUNDS)
+
+
+def host_key_ok(key):
+    # compare as bytes: hmac.compare_digest rejects non-ASCII str, and keys may be Cyrillic
+    return hmac.compare_digest(str(key or "").encode("utf-8"), HOST_KEY.encode("utf-8"))
 
 
 def new_uid():
@@ -413,6 +427,8 @@ def sync_payload(uid=None, host=False):
         "points": POINTS,
         "question_seconds": QUESTION_SECONDS,
         "server_now": now(),
+        "live_open": live_open(),
+        "live_opens_at": LIVE_OPENS_AT,
     }
     if host:
         payload["live_unique"] = LIVE_UNIQUE
@@ -640,7 +656,7 @@ def handle(c, msg):
     if mtype == "host_auth":
         if host_fail_ip.blocked(c.ip):
             return send(c, {"type": "error", "message": "Слишком много попыток, подождите 10 минут"})
-        if not hmac.compare_digest(str(msg.get("key", "")), HOST_KEY):
+        if not host_key_ok(msg.get("key")):
             host_fail_ip.add(c.ip)
             return send(c, {"type": "error", "message": "Неверный ключ"})
         c.host = True
@@ -649,6 +665,8 @@ def handle(c, msg):
         return send(c, sync_payload(None, host=True))
 
     if c.uid and not c.host:
+        if mtype in ("vote", "answer", "chat") and not live_open():
+            return send(c, {"type": "notice", "text": "Трансляция ещё не началась"})
         if mtype == "vote":
             cast_vote(c.uid, msg.get("ci"), msg.get("li"))
         elif mtype == "answer":
@@ -841,6 +859,8 @@ async def api_me(authorization: str | None = Header(None)):
     return {
         "id": uid,
         "solo_open": settings["solo_open"],
+        "live_open": live_open(),
+        "live_opens_at": LIVE_OPENS_AT,
         "total": TOTAL_SOLO,
         "variants": [attempt_summary(v, rows.get(v)) for v in range(len(SETS))],
         "ml": attempt_summary(ML_INDEX, rows[ML_INDEX]) if ML_INDEX in rows else None,
@@ -950,7 +970,7 @@ def require_host_key(key, request):
     ip = client_ip(request.headers, request.client)
     if host_fail_ip.blocked(ip):
         raise HTTPException(429, "Слишком много попыток — подождите 10 минут")
-    if not hmac.compare_digest(key or "", HOST_KEY):
+    if not host_key_ok(key):
         host_fail_ip.add(ip)
         raise HTTPException(403, "Неверный ключ ведущего")
 
@@ -998,14 +1018,14 @@ def iso(ts):
 
 @app.get("/api/admin/leaderboard.csv")
 async def export_leaderboard(request: Request, x_host_key: str | None = Header(None)):
-    require_host_key(x_host_key, request)
+    require_host_key(unquote(x_host_key or ""), request)  # header is URL-encoded: keys may be Cyrillic
     rows = [(i + 1, uid, p["score"], p["time"], p["answered"]) for i, (uid, p) in enumerate(ranked)]
     return csv_response("iigra-leaderboard.csv", ["Место", "ID", "Очки", "Время верных ответов, с", "Ответов"], rows)
 
 
 @app.get("/api/admin/codes.csv")
 async def export_codes(request: Request, x_host_key: str | None = Header(None)):
-    require_host_key(x_host_key, request)
+    require_host_key(unquote(x_host_key or ""), request)  # header is URL-encoded: keys may be Cyrillic
     rows = [(r["code"], r["user_id"], variant_label(r["variant"]), r["score"], iso(r["completed"])) for r in db.all_codes()]
     return csv_response("iigra-codes.csv", ["Код", "ID", "Вариант", "Очки", "Пройдено"], rows)
 

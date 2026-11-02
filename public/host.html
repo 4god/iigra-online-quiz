@@ -123,7 +123,8 @@
 
 <div id="app" hidden style="flex:1;display:flex;flex-direction:column;">
   <div class="conn-bar" id="connBar" hidden>Нет связи с сервером — переподключаемся…</div>
-  <div class="warn-bar" id="liveWarn" hidden>Вопросы трансляции не загружены — сейчас играется вариант 1, который доступен и в самостоятельном режиме. Задайте LIVE_QUESTIONS на сервере.</div>
+  <div class="warn-bar" id="gateWarn" hidden></div>
+  <div class="warn-bar" id="liveWarn" hidden>Вопросы трансляции не загружены — играется обычный вариант (LIVE_VARIANT), который есть и в самостоятельном режиме. Для эфира положите live_questions.json на сервер или задайте LIVE_QUESTIONS.</div>
 
   <div class="topbar">
     <div class="brand"><div class="mark">ИИ<span>гра</span></div><div class="sub">Своя игра про ИИ</div></div>
@@ -291,6 +292,8 @@
         H.answered = m.current ? m.current.answered : 0;
         if(m.muted) H.muted = m.muted;
         $("liveWarn").hidden = m.live_unique !== false;
+        H.liveOpen = m.live_open; H.liveOpensAt = m.live_opens_at;
+        renderGate();
         resetChat(m.chat || []);
         H.stageHidden = false;
         renderAll();
@@ -316,6 +319,16 @@
       case "chat_delete": removeChat(m.ids); break;
     }
   }
+
+  function renderGate(){
+    var open = H.liveOpen || (H.liveOpensAt && serverNow() >= H.liveOpensAt);
+    $("gateWarn").hidden = !!open;
+    if(!open && H.liveOpensAt){
+      var when = new Date(H.liveOpensAt * 1000).toLocaleString("ru-RU", {timeZone: "Europe/Moscow", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit"});
+      $("gateWarn").textContent = "Трансляция для игроков откроется " + when + " (МСК). До этого они могут только регистрироваться — голосовать, отвечать и писать в чат нельзя. Время задаётся переменной LIVE_OPENS_AT.";
+    }
+  }
+  setInterval(renderGate, 15000);
 
   // ------------------------------------------------ render
   function renderAll(){ renderStats(); renderControls(); renderBoard(); renderLeaders(); renderStage(); renderFinal(); renderSettings(); }
@@ -530,7 +543,7 @@
   });
 
   function download(path, filename){
-    fetch(path, {headers: {"X-Host-Key": H.key}}).then(function(r){
+    fetch(path, {headers: {"X-Host-Key": encodeURIComponent(H.key)}}).then(function(r){
       if(!r.ok) throw new Error("Не удалось выгрузить: " + r.status);
       return r.blob();
     }).then(function(blob){

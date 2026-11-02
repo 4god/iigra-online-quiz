@@ -33,6 +33,21 @@
   .me-chip button{background:transparent;border:1px solid var(--card-edge);border-radius:999px;color:var(--ink-dim);cursor:pointer;font-size:12px;padding:4px 10px;}
   .conn-bar{background:var(--bad);color:#2b0506;text-align:center;font-weight:800;font-size:13px;padding:6px;}
 
+  /* ---------- home ---------- */
+  .home{width:min(480px,100%);display:flex;flex-direction:column;gap:12px;}
+  .home-title{font-family:"Unbounded",sans-serif;font-size:20px;margin:0 0 4px;}
+  .choice{
+    text-align:left;background:var(--card);border:1px solid var(--card-edge);border-radius:16px;
+    padding:20px;display:flex;flex-direction:column;gap:6px;cursor:pointer;
+  }
+  .choice:hover:not(:disabled){border-color:var(--mint);}
+  .choice:disabled{cursor:not-allowed;opacity:.55;}
+  .choice-t{font-family:"Unbounded",sans-serif;font-weight:700;font-size:17px;}
+  .choice-s{color:var(--ink-dim);font-size:14px;line-height:1.45;}
+  .choice.live:not(:disabled){border-color:rgba(57,242,164,.45);}
+  .layout.no-chat{grid-template-columns:minmax(0,1fr);}
+  .layout.no-chat .chat{display:none!important;}
+
   /* ---------- auth ---------- */
   .center-wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:20px;}
   .auth{width:min(380px,100%);display:flex;flex-direction:column;gap:14px;}
@@ -206,8 +221,9 @@
 <header class="topbar">
   <div class="brand"><div class="mark" id="logo">ИИ<span>гра</span><span class="ml-badge">ML hardcore</span></div></div>
   <nav class="tabs" id="tabs" hidden>
-    <button type="button" data-tab="live" class="active">Игра</button>
-    <button type="button" data-tab="chat" class="chat-tab">Чат<span class="dot" id="chatDot" hidden></span></button>
+    <button type="button" data-tab="home">Меню</button>
+    <button type="button" data-tab="live" id="liveTabBtn" class="active">Игра</button>
+    <button type="button" data-tab="chat" id="chatTabBtn" class="chat-tab">Чат<span class="dot" id="chatDot" hidden></span></button>
     <button type="button" data-tab="solo" id="soloTabBtn" hidden>Варианты</button>
   </nav>
   <div class="me-chip" id="meChip" hidden>
@@ -249,6 +265,21 @@
     <div class="id-big" id="idBig"></div>
     <p>Запишите его или сделайте скриншот. По ID и паролю можно войти с другого устройства. Восстановить пароль нельзя — мы не храним о вас никаких данных.</p>
     <button class="btn primary" type="button" id="idDone">Записал, играем</button>
+  </div>
+</section>
+
+<!-- ======================================================= home -->
+<section class="center-wrap" id="homeView" hidden>
+  <div class="home">
+    <p class="home-title">Что выбираете?</p>
+    <button class="choice live" type="button" id="chooseLive">
+      <span class="choice-t">Присоединиться к трансляции</span>
+      <span class="choice-s" id="liveSub"></span>
+    </button>
+    <button class="choice" type="button" id="chooseSolo">
+      <span class="choice-t">Пройти варианты самостоятельно</span>
+      <span class="choice-s" id="soloSub"></span>
+    </button>
   </div>
 </section>
 
@@ -364,7 +395,8 @@
     lastReveal: null, myResult: null, top: [], participants: 0, me: null,
     settings: {chat_enabled: true, slow: 5, solo_open: false},
     online: 0, registered: 0, categories: [], points: [100,200,300,400,500], qSeconds: 30,
-    offset: 0, selected: null, committed: null, answered: 0, tab: "live"
+    offset: 0, selected: null, committed: null, answered: 0, tab: "live",
+    view: "home", liveOpen: false, liveOpensAt: 0, statusKnown: false
   };
 
   var toastTimer = null;
@@ -390,7 +422,7 @@
 
   // ===================================================== auth
   function showAuth(which){
-    $("authView").hidden = false; $("appView").hidden = true; $("tabs").hidden = true; $("meChip").hidden = true;
+    $("authView").hidden = false; $("homeView").hidden = true; $("appView").hidden = true; $("tabs").hidden = true; $("meChip").hidden = true;
     $("regForm").hidden = which !== "reg"; $("loginForm").hidden = which !== "login"; $("idCard").hidden = which !== "id";
   }
   $("toLogin").addEventListener("click", function(){ showAuth("login"); $("loginId").focus(); });
@@ -440,16 +472,94 @@
     if(confirm("Выйти? Чтобы вернуться, понадобятся ID и пароль.")) logout();
   });
 
+  function ssGet(k){ try{ return sessionStorage.getItem(k); }catch(e){ return null; } }
+  function ssSet(k, v){ try{ sessionStorage.setItem(k, v); }catch(e){} }
+
   function enterApp(){
-    $("authView").hidden = true; $("appView").hidden = false; $("tabs").hidden = false; $("meChip").hidden = false;
+    $("authView").hidden = true; $("meChip").hidden = false;
     $("meId").textContent = fmtId(S.uid);
-    setTab("live");
+    S.statusKnown = false;
+    S.restoreTo = ssGet("iigra-view");
+    showHome();
     connect();
     loadSolo();
   }
 
+  function showHome(){
+    S.view = "home";
+    ssSet("iigra-view", "home");
+    $("homeView").hidden = false; $("appView").hidden = true; $("tabs").hidden = true;
+    document.body.classList.remove("ml");
+    renderHome();
+  }
+
+  function showApp(tab){
+    S.view = "app";
+    $("homeView").hidden = true; $("appView").hidden = false; $("tabs").hidden = false;
+    renderTabs();
+    setTab(tab);
+  }
+
+  // After a reload, return the player to where they were, if it is still allowed.
+  function restoreView(){
+    if(S.statusKnown) return;
+    S.statusKnown = true;
+    var last = S.restoreTo;
+    if((last === "live" || last === "chat") && S.liveOpen) showApp("live");
+    else if(last === "solo" && S.settings.solo_open) showApp("solo");
+  }
+
+  function fmtOpens(ts){
+    try{
+      return new Date(ts * 1000).toLocaleString("ru-RU", {timeZone: "Europe/Moscow", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit"}).replace(",", " в");
+    }catch(e){ return new Date(ts * 1000).toLocaleString("ru-RU"); }
+  }
+  function fmtLeft(sec){
+    var d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.max(1, Math.ceil(sec % 3600 / 60));
+    if(d > 0) return "через " + d + " дн. " + h + " ч";
+    if(h > 0) return "через " + h + " ч " + (m % 60) + " мин";
+    return "через " + m + " мин";
+  }
+
+  function renderHome(){
+    var lb = $("chooseLive"), sb = $("chooseSolo");
+    lb.disabled = !S.liveOpen;
+    $("liveSub").textContent = S.liveOpen
+      ? "Голосуйте за вопросы, отвечайте вместе со всеми и следите за таблицей лидеров. Есть общий чат."
+      : (S.liveOpensAt ? "Откроется " + fmtOpens(S.liveOpensAt) + " по Москве · " + fmtLeft(Math.max(0, S.liveOpensAt - serverNow())) : "Загружаем…");
+    sb.disabled = !S.settings.solo_open;
+    $("soloSub").textContent = S.settings.solo_open
+      ? "11 вариантов по 25 вопросов, без таймера. За каждый пройденный вариант — код для получения приза."
+      : "Откроются после трансляции.";
+  }
+  $("chooseLive").addEventListener("click", function(){ if(S.liveOpen){ ssSet("iigra-view", "live"); showApp("live"); } });
+  $("chooseSolo").addEventListener("click", function(){ if(S.settings.solo_open){ ssSet("iigra-view", "solo"); showApp("solo"); } });
+
+  function renderTabs(){
+    $("liveTabBtn").hidden = !S.liveOpen;
+    $("chatTabBtn").hidden = !S.liveOpen;
+    $("soloTabBtn").hidden = !S.settings.solo_open;
+    $("appView").classList.toggle("no-chat", !S.liveOpen);
+  }
+
+  function setLiveStatus(open, opensAt){
+    var was = S.liveOpen;
+    S.liveOpen = !!open; S.liveOpensAt = opensAt || S.liveOpensAt;
+    renderTabs(); renderHome();
+    if(!S.liveOpen && S.view === "app" && (S.tab === "live" || S.tab === "chat")) showHome();
+    if(S.liveOpen && !was && S.statusKnown) toast("Трансляция открыта — можно присоединяться!");
+  }
+  // The broadcast opens by the clock: flip the button without waiting for a reload.
+  setInterval(function(){
+    if(!S.liveOpensAt) return;
+    if(!S.liveOpen && serverNow() >= S.liveOpensAt) setLiveStatus(true);
+    else if(S.view === "home") renderHome();
+  }, 15000);
+
   // ===================================================== tabs
   function setTab(tab){
+    if(tab === "home") return showHome();
+    ssSet("iigra-view", tab);
     S.tab = tab;
     Array.prototype.forEach.call(document.querySelectorAll(".tabs button"), function(b){ b.classList.toggle("active", b.dataset.tab === tab); });
     $("livePane").classList.toggle("show", tab === "live");
@@ -495,15 +605,17 @@
         S.lastReveal = m.last_reveal; S.myResult = m.my_result; S.top = m.top || []; S.participants = m.participants || 0;
         S.me = m.me; S.settings = m.settings; S.online = m.online; S.registered = m.registered;
         S.categories = m.categories; S.points = m.points; S.qSeconds = m.question_seconds;
+        setLiveStatus(m.live_open, m.live_opens_at);
         S.selected = null;
         S.committed = (m.current && m.current.my_answer !== undefined) ? m.current.my_answer : null;
         S.answered = m.current ? m.current.answered : 0;
         resetChat(m.chat || []);
         renderAll();
+        restoreView();
         break;
       case "auth_failed": logout("Сессия устарела — войдите снова"); break;
       case "stats": S.online = m.online; S.registered = m.registered; renderOnline(); break;
-      case "settings": S.settings = m.settings; renderChatForm(); renderSoloTab(); if(S.tab === "solo") loadSolo(); renderFinal(); break;
+      case "settings": S.settings = m.settings; renderChatForm(); renderSoloTab(); renderHome(); if(S.tab === "solo") loadSolo(); renderFinal(); break;
       case "vote_started":
         S.phase = "voting"; S.vote = {tallies: {}, total: 0, my: null}; S.voteWinner = null; S.lastReveal = null;
         if(S.tab === "chat" && isMobile()) toast("Голосование: какую плитку открыть?");
@@ -515,7 +627,8 @@
         setOffset(m.server_now);
         S.phase = "question"; S.current = m.data; S.selected = null; S.committed = null; S.answered = 0;
         S.lastReveal = null; S.myResult = null; S.vote = null; S.voteWinner = null;
-        if(S.tab !== "live"){ setTab("live"); toast("Новый вопрос!"); }
+        if(S.view === "app" && S.liveOpen && S.tab !== "live"){ setTab("live"); toast("Новый вопрос!"); }
+        else if(S.view === "home" && S.liveOpen) toast("На трансляции новый вопрос — присоединяйтесь!");
         renderLive(); break;
       case "answer_ack": S.committed = m.option; renderQuestion(); break;
       case "answer_count": S.answered = m.count; renderQStatus(); break;
@@ -792,14 +905,19 @@
   // ===================================================== self-paced variants
   var SOLO = {me: null, data: null, open: null, selected: null};
 
-  function renderSoloTab(){ $("soloTabBtn").hidden = !S.settings.solo_open; if(!S.settings.solo_open && S.tab === "solo") setTab("live"); }
+  function renderSoloTab(){
+    renderTabs();
+    if(!S.settings.solo_open && S.view === "app" && S.tab === "solo") showHome();
+  }
 
   function loadSolo(){
     if(!S.token) return;
     api("GET", "/api/me").then(function(me){
       SOLO.me = me;
       S.settings.solo_open = me.solo_open;
+      setLiveStatus(me.live_open, me.live_opens_at);
       renderSoloTab();
+      renderHome();
       if(!SOLO.data) renderSoloList();
     }).catch(function(){});
   }

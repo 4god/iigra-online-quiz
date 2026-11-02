@@ -1,5 +1,5 @@
 """End-to-end smoke test against a running server: python tools/e2e_test.py http://127.0.0.1:8765 HOSTKEY"""
-import asyncio, json, os, sys, urllib.request
+import asyncio, json, os, sys, urllib.parse, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8765"
@@ -11,7 +11,7 @@ def http(method, path, body=None, token=None, headers=None):
     h = {"Content-Type": "application/json"}
     if token:
         h["Authorization"] = "Bearer " + token
-    h.update(headers or {})
+    h.update({k: urllib.parse.quote(v) for k, v in (headers or {}).items()})
     req = urllib.request.Request(BASE + path, data=json.dumps(body).encode() if body is not None else None, headers=h, method=method)
     try:
         with urllib.request.urlopen(req) as r:
