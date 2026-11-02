@@ -11,6 +11,7 @@ import json
 import random
 import sys
 import time
+from collections import Counter
 
 import subprocess
 
@@ -35,12 +36,22 @@ class Player:
     def __init__(self, session, token):
         self.session, self.token = session, token
         self.events = {}
-        self.ws = None
+        self.ws = self.error = None
 
-    async def run(self, ready):
-        self.ws = await self.session.ws_connect(WS, heartbeat=25)
-        await self.ws.send_str(json.dumps({"type": "auth", "token": self.token}))
+    async def run(self, ready, gate):
+        # Over the internet one laptop can't open 1000 TLS sockets at once: connect in batches, retry, count failures.
+        async with gate:
+            for attempt in range(3):
+                try:
+                    self.ws = await self.session.ws_connect(WS, heartbeat=25, timeout=aiohttp.ClientWSTimeout(ws_close=10))
+                    await self.ws.send_str(json.dumps({"type": "auth", "token": self.token}))
+                    break
+                except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+                    self.ws, self.error = None, type(e).__name__ + ": " + str(e)[:80]
+                    await asyncio.sleep(1 + attempt)
         ready.release()
+        if self.ws is None:
+            return
         async for msg in self.ws:
             if msg.type != aiohttp.WSMsgType.TEXT:
                 break
@@ -80,7 +91,7 @@ async def main():
         print(f"регистрация {N}: {time.perf_counter() - t:.1f} с, CPU сервера {server_cpu():.1f} с")
         cpu0 = server_cpu()
 
-        host = await session.ws_connect(WS)
+        host = await session.ws_connect(WS, heartbeat=25)
         await host.send_str(json.dumps({"type": "host_auth", "key": KEY}))
 
         async def host_wait(mtype):
@@ -89,17 +100,24 @@ async def main():
                     return
 
         await host_wait("sync")
+        # Keep draining the host socket, otherwise the server drops it as a slow client.
+        asyncio.create_task(host_wait("never"))
         await host.send_str(json.dumps({"type": "reset_game"}))
         await host.send_str(json.dumps({"type": "chat_settings", "enabled": True, "slow": 3}))
 
         players = [Player(session, tok) for tok in tokens]
         ready = asyncio.Semaphore(0)
+        gate = asyncio.Semaphore(100)
         t = time.perf_counter()
-        tasks = [asyncio.create_task(p.run(ready)) for p in players]
+        tasks = [asyncio.create_task(p.run(ready, gate)) for p in players]
         for _ in players:
             await ready.acquire()
         await asyncio.sleep(2)
-        print(f"подключение {N}: {time.perf_counter() - t:.1f} с, sync получили {sum('sync' in p.events for p in players)}")
+        failed = [p.error for p in players if p.ws is None]
+        players = [p for p in players if p.ws is not None]
+        print(f"подключение {N}: {time.perf_counter() - t:.1f} с, не подключились {len(failed)}, sync получили {sum('sync' in p.events for p in players)}")
+        for err, n in Counter(failed).most_common(3):
+            print(f"  {n} × {err}")
 
         for round_no in range(2):
             for p in players:
