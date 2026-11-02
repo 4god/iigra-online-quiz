@@ -63,7 +63,7 @@
         result.className = "result ok";
         result.innerHTML =
           '<div class="line">✅ <b>Код действителен</b></div>' +
-          '<div class="line">ID игрока: <b>'+escapeHtml(data.id)+'</b></div>' +
+          '<div class="line">ID игрока: <b>'+escapeHtml(data.id)+'</b>' + (data.login ? ' · логин <b>'+escapeHtml(data.login)+'</b>' : '') + '</div>' +
           '<div class="line">Пройден: <b>'+variant+'</b> · '+data.score+' очков</div>' +
           '<div class="line">Когда: <b>'+dt.toLocaleString("ru-RU")+'</b></div>' +
           '<div class="line">Всего вариантов пройдено этим игроком: <b>'+data.codes_total+'</b></div>';

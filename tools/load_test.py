@@ -81,10 +81,11 @@ async def main():
     async with aiohttp.ClientSession(connector=conn) as session:
         t = time.perf_counter()
         sem = asyncio.Semaphore(50)
+        run = random.randrange(36 ** 4)
 
         async def reg(i):
             async with sem:
-                async with session.post(BASE + "/api/register", json={"password": f"loadtest{i}"}) as r:
+                async with session.post(BASE + "/api/register", json={"login": f"load{run}_{i}", "password": f"loadtest{i}"}) as r:
                     return (await r.json())["token"]
 
         tokens = await asyncio.gather(*[reg(i) for i in range(N)])

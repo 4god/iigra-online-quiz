@@ -30,6 +30,7 @@
   .me-chip .num{font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums;}
   .me-chip .score{color:var(--mint);}
   .me-chip .rank{color:var(--ink-dim);}
+  .me-chip .name{max-width:min(28vw,180px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .me-chip button{background:transparent;border:1px solid var(--card-edge);border-radius:999px;color:var(--ink-dim);cursor:pointer;font-size:12px;padding:4px 10px;}
   .conn-bar{background:var(--bad);color:#2b0506;text-align:center;font-weight:800;font-size:13px;padding:6px;}
 
@@ -59,6 +60,8 @@
     padding:13px 15px;font-size:16px;
   }
   .auth .err{color:var(--bad);font-size:13px;min-height:16px;}
+  .auth .hint{font-size:12px;color:var(--ink-faint);margin-top:-6px;}
+  .id-login{text-align:center;font-size:20px;font-weight:700;overflow-wrap:anywhere;}
   .auth .switch{background:none;border:none;color:var(--ink-dim);font-size:14px;cursor:pointer;text-decoration:underline;padding:4px;}
   .id-big{
     font-family:"JetBrains Mono",monospace;font-weight:700;font-size:44px;letter-spacing:.08em;
@@ -227,7 +230,7 @@
     <button type="button" data-tab="solo" id="soloTabBtn" hidden>Варианты</button>
   </nav>
   <div class="me-chip" id="meChip" hidden>
-    <span>ID <span class="num" id="meId"></span></span>
+    <span class="name" id="meName"></span>
     <span class="num score" id="meScore">0</span>
     <span class="num rank" id="meRank"></span>
     <button type="button" id="logoutBtn">Выйти</button>
@@ -239,20 +242,23 @@
 <section class="center-wrap" id="authView">
   <form class="card auth" id="regForm" autocomplete="off">
     <h1>ИИгра: «Своя игра» про искусственный интеллект</h1>
-    <p>Регистрация без имени, почты и телефона. Мы выдадим вам ID, а пароль придумайте сами — по ним можно войти с любого устройства.</p>
+    <p>Придумайте логин и пароль — имя, почта и телефон не нужны. Логин увидят другие игроки в таблице лидеров и в чате. За вами закрепится уникальный ID: по нему выдаются призы.</p>
+    <label for="regLogin">Логин</label>
+    <input id="regLogin" minlength="3" maxlength="20" placeholder="Например, neuro_fan" required autocomplete="username" autocapitalize="off" spellcheck="false">
+    <div class="hint">3–20 символов: буквы, цифры, точка, дефис или подчёркивание</div>
     <label for="pw1">Пароль</label>
     <input id="pw1" type="password" minlength="6" maxlength="64" placeholder="Не короче 6 символов" required autocomplete="new-password">
     <label for="pw2">Ещё раз</label>
     <input id="pw2" type="password" minlength="6" maxlength="64" placeholder="Повторите пароль" required autocomplete="new-password">
     <div class="err" id="regErr"></div>
-    <button class="btn primary" type="submit" id="regBtn">Получить ID и играть</button>
-    <button class="switch" type="button" id="toLogin">У меня уже есть ID</button>
+    <button class="btn primary" type="submit" id="regBtn">Зарегистрироваться</button>
+    <button class="switch" type="button" id="toLogin">У меня уже есть аккаунт</button>
   </form>
 
   <form class="card auth" id="loginForm" hidden>
     <h1>Вход</h1>
-    <label for="loginId">ID</label>
-    <input id="loginId" inputmode="numeric" pattern="[0-9 ]*" maxlength="8" placeholder="6 цифр" required autocomplete="username">
+    <label for="loginId">Логин или ID</label>
+    <input id="loginId" maxlength="20" required autocomplete="username" autocapitalize="off" spellcheck="false">
     <label for="loginPw">Пароль</label>
     <input id="loginPw" type="password" maxlength="64" required autocomplete="current-password">
     <div class="err" id="loginErr"></div>
@@ -261,9 +267,11 @@
   </form>
 
   <div class="card auth" id="idCard" hidden>
-    <h1>Ваш ID</h1>
+    <h1>Вы зарегистрированы</h1>
+    <div class="id-login" id="idLogin"></div>
     <div class="id-big" id="idBig"></div>
-    <p>Запишите его или сделайте скриншот. По ID и паролю можно войти с другого устройства. Восстановить пароль нельзя — мы не храним о вас никаких данных.</p>
+    <p>Это ваш ID — сделайте скриншот. Войти можно по логину или ID и паролю с любого устройства. Восстановить пароль нельзя — мы не храним о вас никаких данных.</p>
+    <p id="idWhen" hidden></p>
     <button class="btn primary" type="button" id="idDone">Записал, играем</button>
   </div>
 </section>
@@ -380,7 +388,8 @@
 (function(){
   "use strict";
 
-  var LS_TOKEN = "iigra-token", LS_ID = "iigra-id", LS_ML = "iigra-ml-unlocked";
+  var LS_TOKEN = "iigra-token", LS_ID = "iigra-id", LS_LOGIN = "iigra-login", LS_ML = "iigra-ml-unlocked";
+  var LOGIN_RE = /^[A-Za-zА-Яа-яЁё0-9_.\-]{3,20}$/;
   var LETTERS = ["А","Б","В","Г"];
   function $(id){ return document.getElementById(id); }
   function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
@@ -390,7 +399,7 @@
   function plural(n, one, few, many){ var a = n % 10, b = n % 100; return (a === 1 && b !== 11) ? one : (a >= 2 && a <= 4 && (b < 12 || b > 14)) ? few : many; }
 
   var S = {
-    token: lsGet(LS_TOKEN), uid: lsGet(LS_ID),
+    token: lsGet(LS_TOKEN), uid: lsGet(LS_ID), login: lsGet(LS_LOGIN),
     phase: "idle", used: {}, current: null, vote: null, voteWinner: null,
     lastReveal: null, myResult: null, top: [], participants: 0, me: null,
     settings: {chat_enabled: true, slow: 5, solo_open: false},
@@ -426,18 +435,26 @@
     $("regForm").hidden = which !== "reg"; $("loginForm").hidden = which !== "login"; $("idCard").hidden = which !== "id";
   }
   $("toLogin").addEventListener("click", function(){ showAuth("login"); $("loginId").focus(); });
+  function whoName(id, name){ return name || "#" + id; }
+  function myName(){ return S.login || (S.uid ? "ID " + fmtId(S.uid) : ""); }
   $("toReg").addEventListener("click", function(){ showAuth("reg"); });
 
   $("regForm").addEventListener("submit", function(e){
     e.preventDefault();
-    var p1 = $("pw1").value, p2 = $("pw2").value;
+    var login = $("regLogin").value.trim(), p1 = $("pw1").value, p2 = $("pw2").value;
     $("regErr").textContent = "";
+    if(!LOGIN_RE.test(login)){ $("regErr").textContent = "Логин: 3–20 символов — буквы, цифры, точка, дефис или подчёркивание, без пробелов"; return; }
+    if(!/[A-Za-zА-Яа-яЁё]/.test(login)){ $("regErr").textContent = "В логине должна быть хотя бы одна буква"; return; }
     if(p1.length < 6){ $("regErr").textContent = "Пароль должен быть не короче 6 символов"; return; }
     if(p1 !== p2){ $("regErr").textContent = "Пароли не совпадают"; return; }
     $("regBtn").disabled = true;
-    api("POST", "/api/register", {password: p1}).then(function(res){
+    api("POST", "/api/register", {login: login, password: p1}).then(function(res){
       saveSession(res);
+      $("idLogin").textContent = res.login;
       $("idBig").textContent = fmtId(res.id);
+      var when = $("idWhen");
+      when.hidden = res.live_open || !res.live_opens_at;
+      if(!when.hidden) when.textContent = "Трансляция начнётся " + new Date(res.live_opens_at * 1000).toLocaleDateString("ru-RU", {day: "numeric", month: "long"}) + " — заходите по этой же ссылке, вы уже будете в игре.";
       showAuth("id");
     }).catch(function(err){ $("regErr").textContent = err.message; })
       .then(function(){ $("regBtn").disabled = false; });
@@ -448,28 +465,28 @@
     e.preventDefault();
     $("loginErr").textContent = "";
     $("loginBtn").disabled = true;
-    api("POST", "/api/login", {id: $("loginId").value, password: $("loginPw").value}).then(function(res){
+    api("POST", "/api/login", {login: $("loginId").value, password: $("loginPw").value}).then(function(res){
       saveSession(res); enterApp();
     }).catch(function(err){ $("loginErr").textContent = err.message; })
       .then(function(){ $("loginBtn").disabled = false; });
   });
 
   function saveSession(res){
-    S.token = res.token; S.uid = res.id;
-    lsSet(LS_TOKEN, res.token); lsSet(LS_ID, res.id);
+    S.token = res.token; S.uid = res.id; S.login = res.login || null;
+    lsSet(LS_TOKEN, res.token); lsSet(LS_ID, res.id); lsSet(LS_LOGIN, S.login);
   }
 
   function logout(message){
     if(S.token){ fetch("/api/logout", {method: "POST", headers: {Authorization: "Bearer " + S.token}}).catch(function(){}); }
-    S.token = null; S.uid = null; S.me = null;
-    lsSet(LS_TOKEN, null); lsSet(LS_ID, null);
+    S.token = null; S.uid = null; S.login = null; S.me = null;
+    lsSet(LS_TOKEN, null); lsSet(LS_ID, null); lsSet(LS_LOGIN, null);
     closeWs();
     document.body.classList.remove("ml");
     showAuth("login");
     if(message) toast(message);
   }
   $("logoutBtn").addEventListener("click", function(){
-    if(confirm("Выйти? Чтобы вернуться, понадобятся ID и пароль.")) logout();
+    if(confirm("Выйти? Чтобы вернуться, понадобятся логин (или ID) и пароль.")) logout();
   });
 
   function ssGet(k){ try{ return sessionStorage.getItem(k); }catch(e){ return null; } }
@@ -477,7 +494,7 @@
 
   function enterApp(){
     $("authView").hidden = true; $("meChip").hidden = false;
-    $("meId").textContent = fmtId(S.uid);
+    renderName();
     S.statusKnown = false;
     S.restoreTo = ssGet("iigra-view");
     showHome();
@@ -638,7 +655,7 @@
         S.phase = "revealed"; S.lastReveal = m; S.used = m.used; S.top = m.top; S.participants = m.participants;
         S.current = null; S.myResult = undefined; renderLive(); break;
       case "me":
-        S.me = {id: m.id, score: m.score, rank: m.rank, muted: m.muted};
+        S.me = {id: m.id, name: m.name, score: m.score, rank: m.rank, muted: m.muted};
         if("result" in m) S.myResult = m.result;
         renderHeader(); if(S.phase === "revealed") renderQuestion(); renderMini(); renderFinal(); break;
       case "finished": S.phase = "finished"; S.top = m.top; S.participants = m.participants; renderLive(); break;
@@ -652,8 +669,12 @@
   // ===================================================== rendering: header
   function renderAll(){ renderHeader(); renderOnline(); renderChatForm(); renderSoloTab(); renderLive(); }
 
+  function renderName(){
+    $("meName").textContent = myName();
+    $("meName").title = S.uid ? "ID " + fmtId(S.uid) : "";
+  }
   function renderHeader(){
-    $("meId").textContent = fmtId(S.uid);
+    renderName();
     $("meScore").textContent = S.me ? S.me.score : 0;
     $("meRank").textContent = S.me && S.me.rank ? "#" + S.me.rank : "";
   }
@@ -823,7 +844,7 @@
     rows.forEach(function(r, i){
       var row = el("div", "lb-row" + (r.id === S.uid ? " me" : ""));
       row.appendChild(el("span", "pl", (i + 1) + "."));
-      row.appendChild(el("span", "who", "#" + r.id + (r.id === S.uid ? " · вы" : "")));
+      row.appendChild(el("span", "who", whoName(r.id, r.name) + (r.id === S.uid ? " · вы" : "")));
       row.appendChild(el("span", "sc", r.score));
       container.appendChild(row);
     });
@@ -862,7 +883,7 @@
     msgs.forEach(function(m){
       if(chatNodes[m.id]) return;
       var d = el("div", "msg" + (m.host ? " host" : "") + (m.uid === S.uid ? " mine" : ""));
-      var who = el("span", "who", m.host ? "Ведущий" : "#" + m.uid);
+      var who = el("span", "who", m.host ? "Ведущий" : whoName(m.uid, m.name));
       if(!m.host) who.style.color = colorFor(m.uid);
       d.appendChild(who);
       d.appendChild(el("span", "", m.text));
@@ -914,6 +935,7 @@
     if(!S.token) return;
     api("GET", "/api/me").then(function(me){
       SOLO.me = me;
+      if(me.login && me.login !== S.login){ S.login = me.login; lsSet(LS_LOGIN, me.login); renderName(); }
       S.settings.solo_open = me.solo_open;
       setLiveStatus(me.live_open, me.live_opens_at);
       renderSoloTab();

@@ -391,10 +391,12 @@
     }
   }
 
+  function whoName(id, name){ return name || "#" + id; }
   function lbRow(r, i, extra){
     var row = el("div", "lb-row" + (extra || ""));
     row.appendChild(el("span", "pl", (i + 1) + "."));
-    row.appendChild(el("span", "nm", "#" + r.id));
+    var nm = el("span", "nm", whoName(r.id, r.name)); nm.title = "ID " + r.id;
+    row.appendChild(nm);
     row.appendChild(el("span", "sc", r.score));
     return row;
   }
@@ -485,8 +487,8 @@
     msgs.forEach(function(m){
       if(nodes[m.id]) return;
       var d = el("div", "msg" + (m.host ? " host" : ""));
-      var who = el("span", "who", m.host ? "Ведущий" : "#" + m.uid);
-      if(!m.host) who.style.color = colorFor(m.uid);
+      var who = el("span", "who", m.host ? "Ведущий" : whoName(m.uid, m.name));
+      if(!m.host){ who.style.color = colorFor(m.uid); who.title = "ID " + m.uid; }
       d.appendChild(who);
       d.appendChild(el("span", "text", m.text));
       var acts = el("span", "acts");
@@ -496,7 +498,7 @@
       if(!m.host){
         var mute = el("button", "", "Мут"); mute.type = "button";
         mute.addEventListener("click", function(){
-          if(confirm("Запретить игроку #" + m.uid + " писать в чат и удалить его сообщения?")) send({type: "chat_mute", uid: m.uid, muted: true, purge: true});
+          if(confirm("Запретить игроку " + whoName(m.uid, m.name) + " (ID " + m.uid + ") писать в чат и удалить его сообщения?")) send({type: "chat_mute", uid: m.uid, muted: true, purge: true});
         });
         acts.appendChild(mute);
       }
@@ -524,9 +526,10 @@
     $("chatState").textContent = s.chat_enabled ? (s.slow ? "раз в " + s.slow + " с" : "без ограничений") : "выключен";
     var ml = $("mutedList"); ml.innerHTML = "";
     if(!H.muted.length){ ml.textContent = "Никого"; return; }
-    H.muted.forEach(function(uid){
+    H.muted.forEach(function(u){
+      var uid = u.id;
       var row = el("div", "muted-row");
-      row.appendChild(el("span", "", "#" + uid));
+      row.appendChild(el("span", "", whoName(u.id, u.name) + " · ID " + u.id));
       var b = el("button", "btn ghost", "Вернуть"); b.type = "button"; b.style.padding = "4px 10px";
       b.addEventListener("click", function(){ send({type: "chat_mute", uid: uid, muted: false}); });
       row.appendChild(b);

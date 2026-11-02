@@ -1,7 +1,7 @@
 """
 ИИгра — «Своя игра» про ИИ для онлайн-трансляции.
 
-  /        — игроки: регистрация (ID + пароль), игра, чат, самостоятельные варианты
+  /        — игроки: регистрация (логин + пароль, ID выдаётся сервером), игра, чат, самостоятельные варианты
   /host    — пульт ведущего: голосования, вопросы, модерация чата, итоги
   /verify  — проверка кодов призов за самостоятельные варианты
 
@@ -21,7 +21,9 @@ import os
 import random
 import re
 import secrets
+import sqlite3
 import time
+import unicodedata
 from collections import deque
 from urllib.parse import unquote
 from contextlib import asynccontextmanager
@@ -119,7 +121,7 @@ def public_question(board, ci, li):
 db = DB(DATA_DIR / "iigra.db")
 
 players = {
-    r["id"]: {"score": r["score"], "time": r["time"], "answered": r["answered"], "muted": bool(r["muted"])}
+    r["id"]: {"name": r["login"], "score": r["score"], "time": r["time"], "answered": r["answered"], "muted": bool(r["muted"])}
     for r in db.all_users()
 }
 sessions = {r["token"]: r["user_id"] for r in db.all_sessions()}
@@ -153,7 +155,7 @@ def recompute_ranks():
 
 
 def top(n):
-    return [{"id": uid, "score": p["score"]} for uid, p in ranked[:n]]
+    return [{"id": uid, "name": p["name"], "score": p["score"]} for uid, p in ranked[:n]]
 
 
 recompute_ranks()
@@ -359,7 +361,8 @@ def clean_text(text):
 def post_chat(uid, text, host=False):
     global chat_seq
     chat_seq += 1
-    msg = {"id": chat_seq, "uid": uid, "text": text, "ts": round(now(), 1), "host": host}
+    name = None if host else players[uid]["name"]
+    msg = {"id": chat_seq, "uid": uid, "name": name, "text": text, "ts": round(now(), 1), "host": host}
     chat_history.append(msg)
     chat_out.append(msg)
 
@@ -409,7 +412,11 @@ def me_payload(uid):
     p = players.get(uid)
     if not p:
         return None
-    return {"id": uid, "score": p["score"], "rank": rank_of.get(uid), "muted": p["muted"]}
+    return {"id": uid, "name": p["name"], "score": p["score"], "rank": rank_of.get(uid), "muted": p["muted"]}
+
+
+def muted_list():
+    return [{"id": u, "name": p["name"]} for u, p in players.items() if p["muted"]]
 
 
 def sync_payload(uid=None, host=False):
@@ -447,7 +454,7 @@ def sync_payload(uid=None, host=False):
     if host:
         payload["live_unique"] = LIVE_UNIQUE
         payload["live_error"] = LIVE_ERROR
-        payload["muted"] = [u for u, p in players.items() if p["muted"]]
+        payload["muted"] = muted_list()
     return payload
 
 
@@ -722,7 +729,7 @@ def handle(c, msg):
         if muted and msg.get("purge"):
             delete_chat_ids([m["id"] for m in chat_history if m["uid"] == uid])
         send_user(uid, {"type": "muted", "muted": muted})
-        send_hosts({"type": "muted_list", "muted": [u for u, q in players.items() if q["muted"]]})
+        send_hosts({"type": "muted_list", "muted": muted_list()})
     elif mtype == "chat_settings":
         if "enabled" in msg:
             settings["chat_enabled"] = bool(msg["enabled"])
@@ -780,42 +787,77 @@ async def ws_endpoint(ws: WebSocket):
 # ---------------------------------------------------------------- accounts API
 
 class RegisterBody(BaseModel):
+    login: str
     password: str
 
 
 class LoginBody(BaseModel):
-    id: str
+    login: str = ""
+    id: str = ""  # pages loaded before logins existed send the ID here
     password: str
+
+
+LOGIN_RE = re.compile(r"[A-Za-zА-Яа-яЁё0-9_.\-]{3,20}")
+RESERVED_LOGINS = {"ведущий", "host", "admin", "админ", "администратор", "moderator", "модератор", "иигра", "iigra"}
+
+
+def login_key(login):
+    """Case-insensitive form used for uniqueness: «Нейро», «нейро» and «НЕЙРО» are one login."""
+    return login.casefold().replace("ё", "е")
+
+
+def check_login(raw):
+    login = unicodedata.normalize("NFC", str(raw)).strip()
+    if not LOGIN_RE.fullmatch(login):
+        raise HTTPException(400, "Логин: от 3 до 20 символов — буквы, цифры, точка, дефис или подчёркивание, без пробелов")
+    if not re.search(r"[A-Za-zА-Яа-яЁё]", login):
+        raise HTTPException(400, "В логине должна быть хотя бы одна буква")
+    if BAD_WORDS.search(login) or login_key(login) in RESERVED_LOGINS:
+        raise HTTPException(400, "Этот логин нельзя использовать — придумайте другой")
+    return login
 
 
 @app.post("/api/register")
 async def register(body: RegisterBody, request: Request):
     if not register_limit.allow(client_ip(request.headers, request.client)):
         raise HTTPException(429, "Слишком много регистраций с вашего адреса — подождите минуту")
+    login = check_login(body.login)
+    key = login_key(login)
+    taken = HTTPException(409, "Этот логин уже занят — придумайте другой")
+    if db.login_taken(key):
+        raise taken
     if not 6 <= len(body.password) <= 64:
         raise HTTPException(400, "Пароль должен быть от 6 до 64 символов")
     salt = secrets.token_bytes(16)
     pw = await asyncio.to_thread(hash_pw, body.password, salt)
     uid = new_uid()
-    db.create_user(uid, salt, pw)
-    players[uid] = {"score": 0, "time": 0, "answered": 0, "muted": False}
+    try:
+        db.create_user(uid, login, key, salt, pw)
+    except sqlite3.IntegrityError:  # someone took the same login while we were hashing
+        raise taken
+    players[uid] = {"name": login, "score": 0, "time": 0, "answered": 0, "muted": False}
     dirty["stats"] = True
-    return {"id": uid, "token": new_session(uid)}
+    return {"id": uid, "login": login, "token": new_session(uid), "live_open": live_open(), "live_opens_at": LIVE_OPENS_AT}
 
 
 @app.post("/api/login")
 async def login(body: LoginBody, request: Request):
     ip = client_ip(request.headers, request.client)
-    uid = re.sub(r"\D", "", body.id)
-    if login_fail_ip.blocked(ip) or login_fail_id.blocked(uid):
+    who = unicodedata.normalize("NFC", (body.login or body.id)).strip()
+    if re.fullmatch(r"[\d ]{6,8}", who):  # a 6-digit ID, possibly typed as «123 456»
+        who = re.sub(r"\D", "", who)
+        row = db.user_secret(who)
+    else:
+        who = login_key(who)
+        row = db.user_secret_by_login(who)
+    if login_fail_ip.blocked(ip) or login_fail_id.blocked(who):
         raise HTTPException(429, "Слишком много неудачных попыток — подождите 10 минут")
-    row = db.user_secret(uid)
     pw = await asyncio.to_thread(hash_pw, body.password, row["salt"] if row else b"x" * 16)
     if not row or not hmac.compare_digest(pw, row["pw"]):
         login_fail_ip.add(ip)
-        login_fail_id.add(uid)
-        raise HTTPException(401, "Неверный ID или пароль")
-    return {"id": uid, "token": new_session(uid)}
+        login_fail_id.add(who)
+        raise HTTPException(401, "Неверный логин или пароль")
+    return {"id": row["id"], "login": row["login"], "token": new_session(row["id"])}
 
 
 @app.post("/api/logout")
@@ -873,6 +915,7 @@ async def api_me(authorization: str | None = Header(None)):
     rows = {r["variant"]: r for r in db.attempts_for(uid)}
     return {
         "id": uid,
+        "login": players[uid]["name"],
         "solo_open": settings["solo_open"],
         "live_open": live_open(),
         "live_opens_at": LIVE_OPENS_AT,
@@ -1006,6 +1049,7 @@ async def verify_code(body: VerifyBody, request: Request):
         "valid": True,
         "code": row["code"],
         "id": row["user_id"],
+        "login": (players.get(row["user_id"]) or {}).get("name"),
         "variant": variant_label(row["variant"]),
         "score": row["score"],
         "completed_at": row["completed"],
@@ -1035,15 +1079,18 @@ def iso(ts):
 @app.get("/api/admin/leaderboard.csv")
 async def export_leaderboard(request: Request, x_host_key: str | None = Header(None)):
     require_host_key(unquote(x_host_key or ""), request)  # header is URL-encoded: keys may be Cyrillic
-    rows = [(i + 1, uid, p["score"], p["time"], p["answered"]) for i, (uid, p) in enumerate(ranked)]
-    return csv_response("iigra-leaderboard.csv", ["Место", "ID", "Очки", "Время верных ответов, с", "Ответов"], rows)
+    rows = [(i + 1, uid, p["name"] or "", p["score"], p["time"], p["answered"]) for i, (uid, p) in enumerate(ranked)]
+    return csv_response("iigra-leaderboard.csv", ["Место", "ID", "Логин", "Очки", "Время верных ответов, с", "Ответов"], rows)
 
 
 @app.get("/api/admin/codes.csv")
 async def export_codes(request: Request, x_host_key: str | None = Header(None)):
     require_host_key(unquote(x_host_key or ""), request)  # header is URL-encoded: keys may be Cyrillic
-    rows = [(r["code"], r["user_id"], variant_label(r["variant"]), r["score"], iso(r["completed"])) for r in db.all_codes()]
-    return csv_response("iigra-codes.csv", ["Код", "ID", "Вариант", "Очки", "Пройдено"], rows)
+    rows = [
+        (r["code"], r["user_id"], (players.get(r["user_id"]) or {}).get("name") or "", variant_label(r["variant"]), r["score"], iso(r["completed"]))
+        for r in db.all_codes()
+    ]
+    return csv_response("iigra-codes.csv", ["Код", "ID", "Логин", "Вариант", "Очки", "Пройдено"], rows)
 
 
 # ---------------------------------------------------------------- pages

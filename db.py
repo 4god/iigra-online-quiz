@@ -7,6 +7,8 @@ import time
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
+    login TEXT,
+    login_key TEXT,
     salt BLOB NOT NULL,
     pw BLOB NOT NULL,
     created REAL NOT NULL,
@@ -51,16 +53,32 @@ class DB:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(SCHEMA)
+        # Databases created before logins existed: add the columns in place.
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(users)")}
+        for col in ("login", "login_key"):
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+        self.conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_login_key ON users (login_key)")
 
     # ------------------------------------------------------------ users
     def all_users(self):
-        return self.conn.execute("SELECT id, score, time, answered, muted FROM users").fetchall()
+        return self.conn.execute("SELECT id, login, score, time, answered, muted FROM users").fetchall()
 
-    def create_user(self, uid, salt, pw):
-        self.conn.execute("INSERT INTO users (id, salt, pw, created) VALUES (?, ?, ?, ?)", (uid, salt, pw, time.time()))
+    def create_user(self, uid, login, login_key, salt, pw):
+        """Raises sqlite3.IntegrityError if the login is already taken."""
+        self.conn.execute(
+            "INSERT INTO users (id, login, login_key, salt, pw, created) VALUES (?, ?, ?, ?, ?, ?)",
+            (uid, login, login_key, salt, pw, time.time()),
+        )
+
+    def login_taken(self, login_key):
+        return self.conn.execute("SELECT 1 FROM users WHERE login_key = ?", (login_key,)).fetchone() is not None
 
     def user_secret(self, uid):
-        return self.conn.execute("SELECT salt, pw FROM users WHERE id = ?", (uid,)).fetchone()
+        return self.conn.execute("SELECT id, login, salt, pw FROM users WHERE id = ?", (uid,)).fetchone()
+
+    def user_secret_by_login(self, login_key):
+        return self.conn.execute("SELECT id, login, salt, pw FROM users WHERE login_key = ?", (login_key,)).fetchone()
 
     def save_scores(self, rows):
         """rows: iterable of (score, time, answered, uid)"""

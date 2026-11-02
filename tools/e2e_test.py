@@ -23,14 +23,23 @@ def http(method, path, body=None, token=None, headers=None):
 
 async def main():
     import websockets
-    st, bad = http("POST", "/api/register", {"password": "123"})
+    run = os.urandom(3).hex()  # logins are unique for good, so every run needs fresh ones
+    st, bad = http("POST", "/api/register", {"login": f"Тест_{run}", "password": "123"})
     assert st == 400, bad
-    users = [http("POST", "/api/register", {"password": f"secret{i}"})[1] for i in range(3)]
-    print("registered:", [u["id"] for u in users])
-    st, wrong = http("POST", "/api/login", {"id": users[0]["id"], "password": "nope"})
+    for login in ("ab", "123456", "два слова", "admin"):
+        st, bad = http("POST", "/api/register", {"login": login, "password": "secret0"})
+        assert st == 400, (login, bad)
+    users = [http("POST", "/api/register", {"login": f"Тест{i}_{run}", "password": f"secret{i}"})[1] for i in range(3)]
+    print("registered:", [(u["id"], u["login"]) for u in users])
+    st, dup = http("POST", "/api/register", {"login": f"тЕСТ0_{run}", "password": "secret9"})
+    assert st == 409, dup
+    st, wrong = http("POST", "/api/login", {"login": users[0]["login"], "password": "nope"})
     assert st == 401, wrong
-    st, ok = http("POST", "/api/login", {"id": users[0]["id"], "password": "secret0"})
-    assert st == 200 and ok["id"] == users[0]["id"]
+    for who in (f"ТЕСТ0_{run}", users[0]["id"]):
+        st, ok = http("POST", "/api/login", {"login": who, "password": "secret0"})
+        assert st == 200 and ok["id"] == users[0]["id"] and ok["login"] == users[0]["login"], (who, ok)
+    st, ok = http("POST", "/api/login", {"id": users[0]["id"], "password": "secret0"})  # old page format
+    assert st == 200 and ok["id"] == users[0]["id"], ok
 
     async def recv_until(ws, mtype, timeout=5):
         while True:
@@ -86,6 +95,7 @@ async def main():
     await host.send(json.dumps({"type": "reveal"}))
     rev = await recv_until(pws[0], "revealed")
     print("revealed: correct =", rev["correct"], "dist =", rev["dist"], "top =", rev["top"])
+    assert {u["login"] for u in users} <= {r["name"] for r in rev["top"]}, rev["top"]
     assert rev["dist"] == [1, 1, 1, 0]
     for i, w in enumerate(pws):
         me = await recv_until(w, "me")
@@ -95,6 +105,7 @@ async def main():
     await pws[1].send(json.dumps({"type": "chat", "text": "Привет, бля, всем!"}))
     chat = await recv_until(pws[0], "chat")
     print("chat:", [m["text"] for m in chat["messages"]])
+    assert all(m["name"] in {u["login"] for u in users} for m in chat["messages"]), chat["messages"]
     assert "***" in chat["messages"][0]["text"]
     await host.send(json.dumps({"type": "chat_mute", "uid": users[1]["id"], "muted": True, "purge": True}))
     d = await recv_until(pws[0], "chat_delete")
