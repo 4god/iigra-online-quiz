@@ -92,6 +92,17 @@
   .verdict{font-size:34px;font-weight:800;color:var(--ink);}
   .verdict b{color:var(--good);font-family:"JetBrains Mono",monospace;}
 
+  /* ---------- lobby (before the first vote) ---------- */
+  .lobby{flex:1;display:flex;align-items:center;gap:60px;padding:48px 64px;min-height:0;}
+  .lobby img{width:500px;height:500px;border-radius:24px;background:#fff;padding:18px;flex:none;}
+  .lobby h2{margin:0 0 30px;font-family:"Unbounded",sans-serif;font-weight:900;font-size:58px;line-height:1.15;}
+  .lobby h2 span{color:var(--mint);}
+  .lobby ol{margin:0;padding-left:40px;font-size:34px;font-weight:700;line-height:1.55;color:var(--ink-dim);}
+  .lobby ol b{color:var(--ink);}
+  .lobby .url{margin-top:30px;font-family:"JetBrains Mono",monospace;font-weight:700;font-size:38px;color:var(--mint);}
+  .lobby .count{margin-top:22px;font-size:28px;font-weight:800;color:var(--ink-dim);}
+  .lobby .count b{font-family:"JetBrains Mono",monospace;color:var(--ink);}
+
   /* ---------- final ---------- */
   .final{flex:1;display:flex;flex-direction:column;padding:44px 56px;gap:26px;min-height:0;}
   .final h2{margin:0;font-family:"Unbounded",sans-serif;font-weight:900;font-size:64px;}
@@ -142,6 +153,20 @@
   </header>
 
   <main class="main">
+    <section class="card lobby" id="lobbyView" hidden>
+      <img src="/qr" alt="QR-код для входа в игру">
+      <div>
+        <h2>Играйте <span>с телефона</span></h2>
+        <ol>
+          <li>Наведите <b>камеру телефона</b> на QR-код</li>
+          <li><b>Зарегистрируйтесь</b> или войдите — имя и телефон не нужны</li>
+          <li>Нажмите <b>«Присоединиться к трансляции»</b></li>
+        </ol>
+        <div class="url" id="lobbyUrl"></div>
+        <div class="count">Уже в игре: <b id="lobbyOnline">0</b></div>
+      </div>
+    </section>
+
     <div class="board" id="board"></div>
 
     <section class="card qcard" id="qView" hidden>
@@ -164,7 +189,7 @@
       <h3>Лидеры <small id="lbMeta"></small></h3>
       <div id="lbList"></div>
     </section>
-    <section class="card join">
+    <section class="card join" id="joinCard">
       <img id="qr" src="/qr" alt="QR-код для входа в игру">
       <div class="jtext">
         <div class="t1">Играйте с нами</div>
@@ -202,6 +227,7 @@
   window.addEventListener("resize", fit);
   fit();
   $("joinUrl").textContent = location.host;
+  $("lobbyUrl").textContent = location.host;
 
   // ---------------------------------------------------- rendering
   function serverNow(){ return Date.now() / 1000 + S.offset; }
@@ -228,7 +254,9 @@
       case "locked": return setStatus("Время вышло");
       case "revealed": return setStatus("Правильный ответ");
       case "finished": return setStatus("Игра окончена");
-      default: return setStatus(S.voteWinner ? "Выбран: " + tileName(S.voteWinner) : "Скоро выберем вопрос");
+      default:
+        if(S.voteWinner) return setStatus("Выбран: " + tileName(S.voteWinner));
+        return setStatus(Object.keys(S.used).length ? "Скоро выберем вопрос" : "Подключайтесь — скоро начнём", "hot");
     }
   }
 
@@ -363,15 +391,20 @@
   function renderAll(){
     var showQ = (S.phase === "question" || S.phase === "locked") && S.current || (S.phase === "revealed" && S.lastReveal);
     var showFinal = S.phase === "finished";
-    $("board").hidden = !!(showQ || showFinal);
+    // Until the host starts the first vote, a big QR code fills the screen so people can scan it from the stream.
+    var showLobby = !showQ && !showFinal && S.phase === "idle" && !S.voteWinner && !Object.keys(S.used).length;
+    $("lobbyView").hidden = !showLobby;
+    $("joinCard").hidden = showLobby;
+    $("board").hidden = !!(showQ || showFinal || showLobby);
     $("qView").hidden = !showQ;
     $("finalView").hidden = !showFinal;
     if(showFinal) renderFinal();
     else if(showQ) renderQuestion();
-    else renderBoard();
+    else if(!showLobby) renderBoard();
     renderStatus();
     renderLeaders();
     $("online").textContent = S.online;
+    $("lobbyOnline").textContent = S.online;
     $("registered").textContent = S.registered;
   }
 
