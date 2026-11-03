@@ -51,6 +51,8 @@ if [[ ! -f "$APP_DIR/live_questions.csv" && ! -f "$APP_DIR/live_questions.json" 
   echo "!!  live_questions.csv не найден — будет играться обычный вариант (см. GUIDE.md)"
 fi
 
+install -m 755 "$APP_DIR/deploy/iigra-stats.sh" /usr/local/bin/iigra-stats
+
 echo "==> Python-окружение"
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
