@@ -1101,8 +1101,9 @@ def api_board():
 
 
 @app.get("/qr")
-def qr_code(data: str):
-    img = qrcode.make(data[:300], border=2)
+def qr_code(request: Request, data: str | None = None):
+    # Without ?data= the code leads to this server's player page, so /qr itself can go on a poster.
+    img = qrcode.make((data or str(request.base_url))[:300], border=2)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return Response(content=buf.getvalue(), media_type="image/png")

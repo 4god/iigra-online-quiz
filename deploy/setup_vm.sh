@@ -35,7 +35,7 @@ done
 
 echo "==> Пакеты"
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip git curl ufw sqlite3 >/dev/null
+apt-get install -y -qq python3 python3-venv python3-pip git curl ufw sqlite3 jq >/dev/null
 if [[ $HTTPS -eq 1 ]]; then apt-get install -y -qq caddy >/dev/null; fi
 
 echo "==> Код"
@@ -120,12 +120,29 @@ if [[ -z "$IP" && -z "$DOMAIN" ]]; then
 fi
 if [[ $HTTPS -eq 1 ]]; then
   [[ -n "$DOMAIN" ]] || DOMAIN="${IP//./-}.sslip.io"
+  # Access log for visit stats. Visitor IPs are stored only as hashes: unique visitors
+  # can be counted, the addresses themselves are not kept.
+  install -d -o caddy -g caddy /var/log/caddy
   cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
     encode gzip
     reverse_proxy 127.0.0.1:$PORT
+    log {
+        output file /var/log/caddy/iigra-access.log {
+            roll_size 20MiB
+            roll_keep 10
+        }
+        format filter {
+            wrap json
+            fields {
+                request>remote_ip hash
+                request>headers>X-Forwarded-For delete
+            }
+        }
+    }
 }
 EOF
+  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
   systemctl restart caddy
   URL="https://$DOMAIN"
 else
