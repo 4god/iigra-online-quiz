@@ -41,6 +41,11 @@
   .tile:disabled{background:var(--tile-used);color:var(--tile-used-ink);cursor:default;}
   .tile .votes{font-size:12px;font-family:"Manrope",sans-serif;}
   .tile .bar{position:absolute;left:0;bottom:0;height:5px;background:var(--focus);}
+  .tile.off:not(:disabled){opacity:.4;}
+  .sel{background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:999px;padding:9px 14px;color:var(--ink);font:inherit;font-size:14px;font-weight:700;}
+  .fact-note{margin:0 0 18px;padding:12px 14px;border-radius:12px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);font-size:15px;line-height:1.45;}
+  .mv{font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:700;margin-left:4px;}
+  .mv.up{color:var(--good);} .mv.down{color:var(--bad);}
   .tile.winner{outline:4px solid var(--mint);outline-offset:-4px;animation:glow 1.2s ease-in-out infinite;}
   @keyframes glow{50%{box-shadow:0 0 0 8px rgba(57,242,164,.25);}}
   @media (prefers-reduced-motion:reduce){.tile.winner{animation:none;}}
@@ -141,8 +146,18 @@
   </div>
 
   <div class="controls">
+    <select class="sel" id="levelSel" title="Среди каких вопросов голосуют зрители">
+      <option value="auto">Ряд: по возрастанию</option>
+      <option value="any">Любые вопросы</option>
+      <option value="0">Только за 100</option>
+      <option value="1">Только за 200</option>
+      <option value="2">Только за 300</option>
+      <option value="3">Только за 400</option>
+      <option value="4">Только за 500</option>
+    </select>
     <button class="btn primary" type="button" id="voteBtn">Начать голосование</button>
     <button class="btn" type="button" id="reopenBtn" hidden>Вернуться к вопросу</button>
+    <button class="btn warn" type="button" id="finalBtn" title="Самый дорогой из оставшихся вопросов; игроки ставят часть очков, зная только тему">Финал со ставками</button>
     <button class="btn" type="button" id="finishBtn">Показать итоги</button>
     <a class="btn" href="/screen" target="_blank" rel="noopener" style="margin-left:auto;text-decoration:none" title="Страница для вывода в эфир: без кнопок, 1920×1080">Экран для трансляции ↗</a>
     <button class="btn" type="button" id="settingsBtn">Настройки</button>
@@ -178,6 +193,7 @@
     <div class="timer-track" id="timerTrack"><div class="timer-fill" id="timerFill"></div></div>
     <p class="q-text" id="qText"></p>
     <div class="opt-grid" id="optGrid"></div>
+    <p class="fact-note" id="factNote" hidden></p>
     <div class="action-row" id="qActions">
       <button class="btn primary" type="button" id="revealBtn">Показать ответ</button>
       <button class="btn ghost" type="button" id="cancelBtn">Отменить вопрос</button>
@@ -186,6 +202,23 @@
       <button class="btn primary" type="button" id="toBoardBtn">К табло</button>
       <button class="btn" type="button" id="voteNextBtn">Голосование за следующий</button>
       <span id="lastNote" style="color:var(--ink-dim);font-weight:700" hidden>Это был последний вопрос — сейчас откроются итоги</span>
+    </div>
+  </div>
+</div>
+
+<!-- final wager on stage -->
+<div class="veil" id="wVeil" hidden>
+  <div class="stage card">
+    <div class="pills">
+      <span class="pill cat" id="wCat"></span>
+      <span class="pill pts">Финал со ставками</span>
+      <span class="live-stat" id="wStat"></span>
+    </div>
+    <div class="timer-track"><div class="timer-fill" id="wFill"></div></div>
+    <p class="q-text">Игроки делают ставки — вопрос пока не видит никто. Когда отсчёт закончится (или раньше), откройте вопрос.</p>
+    <div class="action-row">
+      <button class="btn primary" type="button" id="openFinalBtn">Открыть финальный вопрос</button>
+      <button class="btn ghost" type="button" id="cancelFinalBtn">Отменить финал</button>
     </div>
   </div>
 </div>
@@ -243,7 +276,7 @@
   var LETTERS = ["А","Б","В","Г"];
   function $(id){ return document.getElementById(id); }
   function el(tag, cls, text){ var e = document.createElement(tag); if(cls) e.className = cls; if(text !== undefined) e.textContent = text; return e; }
-  var PHASES = {idle: "Табло", voting: "Идёт голосование", question: "Вопрос открыт", locked: "Время вышло", revealed: "Ответ показан", finished: "Игра окончена"};
+  var PHASES = {idle: "Табло", voting: "Идёт голосование", wager: "Ставки на финал", question: "Вопрос открыт", locked: "Время вышло", revealed: "Ответ показан", finished: "Игра окончена"};
 
   var H = {key: null, phase: "idle", used: {}, current: null, vote: null, voteWinner: null, lastReveal: null,
            top: [], participants: 0, online: 0, registered: 0, categories: [], points: [], qSeconds: 30, offset: 0,
@@ -291,6 +324,7 @@
         H.lastReveal = m.last_reveal; H.top = m.top; H.participants = m.participants; H.online = m.online; H.registered = m.registered;
         H.categories = m.categories; H.points = m.points; H.qSeconds = m.question_seconds; H.settings = m.settings;
         H.answered = m.current ? m.current.answered : 0;
+        H.final = m.final || null;
         if(m.muted) H.muted = m.muted;
         $("liveWarn").hidden = m.live_unique !== false;
         if(m.live_error) $("liveWarn").textContent = "Файл вопросов трансляции с ошибкой — играется обычный вариант. Исправьте и перезапустите сервер: " + m.live_error;
@@ -303,7 +337,7 @@
       case "stats": H.online = m.online; H.registered = m.registered; renderStats(); break;
       case "settings": H.settings = m.settings; renderSettings(); break;
       case "muted_list": H.muted = m.muted; renderSettings(); break;
-      case "vote_started": H.phase = "voting"; H.vote = {tallies: {}, total: 0}; H.voteWinner = null; renderAll(); break;
+      case "vote_started": H.phase = "voting"; H.vote = {tallies: {}, total: 0, level: m.level}; H.voteWinner = null; renderAll(); break;
       case "vote_tallies": if(H.vote){ H.vote.tallies = m.tallies; H.vote.total = m.total; renderBoard(); renderControls(); } break;
       case "vote_ended": H.phase = "idle"; H.vote = null; H.voteWinner = m.winner; renderAll(); break;
       case "question_opened":
@@ -312,7 +346,13 @@
         renderAll(); break;
       case "answer_count": H.answered = m.count; H.online = m.online; renderStage(); break;
       case "time_up": H.phase = "locked"; renderAll(); break;
-      case "cancelled": H.phase = "idle"; H.current = null; renderAll(); break;
+      case "cancelled": H.phase = "idle"; H.current = null; H.final = null; renderAll(); break;
+      case "final_started":
+        if(m.server_now) H.offset = m.server_now - Date.now() / 1000;
+        H.phase = "wager"; H.final = m; H.lastReveal = null; H.vote = null; H.voteWinner = null; H.stageHidden = false;
+        renderAll(); break;
+      case "wager_count": if(H.final){ H.final.count = m.count; renderWagerStage(); } break;
+      case "wager_closed": if(H.final){ H.final.closed = true; renderWagerStage(); } break;
       case "revealed":
         H.phase = "revealed"; H.lastReveal = m; H.used = m.used; H.top = m.top; H.participants = m.participants; H.current = null;
         renderAll(); break;
@@ -333,7 +373,7 @@
   setInterval(renderGate, 15000);
 
   // ------------------------------------------------ render
-  function renderAll(){ renderStats(); renderControls(); renderBoard(); renderLeaders(); renderStage(); renderFinal(); renderSettings(); }
+  function renderAll(){ renderStats(); renderControls(); renderBoard(); renderLeaders(); renderStage(); renderWagerStage(); renderFinal(); renderSettings(); }
 
   function renderStats(){
     $("stOnline").textContent = H.online; $("stReg").textContent = H.registered; $("stPart").textContent = H.participants;
@@ -352,9 +392,19 @@
     var stageActive = (H.phase === "question" || H.phase === "locked" || H.phase === "revealed");
     $("reopenBtn").hidden = !(stageActive && H.stageHidden);
     $("finishBtn").textContent = H.phase === "finished" ? "Показать итоги на экране" : "Показать итоги";
+    var anyFree = H.categories.length && Object.keys(H.used || {}).length < H.categories.length * H.points.length;
+    $("finalBtn").disabled = !((H.phase === "idle" || H.phase === "revealed") && anyFree);
+    $("levelSel").disabled = H.phase === "voting";
   }
-  $("voteBtn").addEventListener("click", function(){ send({type: H.phase === "voting" ? "end_vote" : "start_vote"}); });
-  $("voteNextBtn").addEventListener("click", function(){ send({type: "start_vote"}); });
+  function levelValue(){ var v = $("levelSel").value; return v === "auto" ? "auto" : v === "any" ? null : +v; }
+  $("voteBtn").addEventListener("click", function(){
+    if(H.phase === "voting") send({type: "end_vote"}); else send({type: "start_vote", level: levelValue()});
+  });
+  $("voteNextBtn").addEventListener("click", function(){ send({type: "start_vote", level: levelValue()}); });
+  $("finalBtn").addEventListener("click", function(){
+    if(confirm("Начать финал со ставками?\n\nФинальным станет самый дорогой из оставшихся вопросов. Игроки увидят только тему и за 30 секунд поставят часть своих очков. После финала игра закончится, неоткрытые вопросы останутся неоткрытыми."))
+      send({type: "start_final"});
+  });
   $("finishBtn").addEventListener("click", function(){
     if(H.phase === "finished"){ H.stageHidden = false; renderFinal(); return; }
     if(confirm("Завершить игру и показать всем итоговую таблицу? Неоткрытые вопросы останутся неоткрытыми.")) send({type: "finish"});
@@ -380,6 +430,7 @@
               var bar = el("span", "bar"); bar.style.width = pct + "%"; t.appendChild(bar);
             }
             if(H.voteWinner === key) t.classList.add("winner");
+            if(voting && H.vote.level !== null && H.vote.level !== undefined && li !== H.vote.level) t.classList.add("off");
             t.disabled = !canOpen;
             t.addEventListener("click", function(){
               if(H.phase === "voting" && !confirm("Голосование ещё идёт. Открыть этот вопрос сразу?")) return;
@@ -396,7 +447,8 @@
   function lbRow(r, i, extra){
     var row = el("div", "lb-row" + (extra || ""));
     row.appendChild(el("span", "pl", (i + 1) + "."));
-    var nm = el("span", "nm", whoName(r.id, r.name)); nm.title = "ID " + r.id;
+    var nm = el("span", "nm", whoName(r.id, r.name) + (r.streak >= 3 ? " 🔥" + r.streak : "")); nm.title = "ID " + r.id;
+    if(typeof r.move === "number" && r.move) nm.appendChild(el("span", "mv " + (r.move > 0 ? "up" : "down"), (r.move > 0 ? "▲" : "▼") + Math.abs(r.move)));
     row.appendChild(nm);
     row.appendChild(el("span", "sc", r.score));
     return row;
@@ -426,8 +478,9 @@
     $("qVeil").hidden = !show;
     renderControls();
     if(!show){ cancelAnimationFrame(timerRAF); return; }
+    var isFinal = revealed ? H.lastReveal.final : q.final;
     $("qCat").textContent = q.category;
-    $("qPts").textContent = q.points + " очков";
+    $("qPts").textContent = isFinal ? "Финал со ставками" : q.points + " очков";
     $("qText").textContent = q.q;
     $("timerTrack").hidden = H.phase !== "question";
     if(H.phase === "question") runTimer(H.current.deadline); else cancelAnimationFrame(timerRAF);
@@ -449,15 +502,40 @@
 
     if(revealed){
       var rv = H.lastReveal, pct = rv.answered ? Math.round(rv.correct_count / rv.answered * 100) : 0;
-      $("liveStat").textContent = "Верно: " + rv.correct_count + " из " + rv.answered + " (" + pct + "%)";
+      $("liveStat").textContent = "Верно: " + rv.correct_count + " из " + rv.answered + " (" + pct + "%)" +
+        (rv.fastest ? " · быстрее всех " + whoName(rv.fastest.id, rv.fastest.name) + " (" + String(rv.fastest.seconds).replace(".", ",") + " с)" : "") +
+        (rv.final ? " · ставки: выиграли " + rv.wager_won + ", проиграли " + rv.wager_lost : "");
     } else {
       $("liveStat").textContent = "Ответили " + H.answered + " из " + H.online + (H.phase === "locked" ? " · время вышло" : "");
     }
+    var fact = revealed && H.lastReveal.fact;
+    $("factNote").hidden = !fact;
+    if(fact) $("factNote").textContent = "💡 Можно рассказать: " + fact;
     $("qActions").hidden = !!revealed;
     $("afterActions").hidden = !revealed;
     $("lastNote").hidden = !(revealed && H.lastReveal.last);
     $("voteNextBtn").hidden = !!(revealed && H.lastReveal.last);
   }
+  var wTimer = null;
+  function renderWagerStage(){
+    var show = H.phase === "wager" && !!H.final;
+    $("wVeil").hidden = !show;
+    clearInterval(wTimer);
+    if(!show) return;
+    var f = H.final;
+    $("wCat").textContent = f.category + " · " + f.points;
+    function tick(){
+      var remain = Math.max(0, f.deadline - serverNow());
+      $("wStat").textContent = "Ставок: " + (f.count || 0) + (f.closed || remain <= 0 ? " · ставки закрыты" : " · осталось " + Math.ceil(remain) + " с");
+      $("wFill").style.width = (f.closed ? 0 : Math.min(1, remain / (f.seconds || 30)) * 100) + "%";
+    }
+    tick();
+    if(!f.closed) wTimer = setInterval(tick, 250);
+  }
+  $("openFinalBtn").addEventListener("click", function(){ send({type: "open_final"}); });
+  $("cancelFinalBtn").addEventListener("click", function(){
+    if(confirm("Отменить финал? Ставки сгорят без последствий, вопрос останется на табло.")) send({type: "cancel_question"});
+  });
   $("revealBtn").addEventListener("click", function(){ send({type: "reveal"}); });
   $("cancelBtn").addEventListener("click", function(){
     if(confirm("Отменить вопрос? Ответы игроков не засчитаются, плитка останется на табло.")) send({type: "cancel_question"});

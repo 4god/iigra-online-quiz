@@ -113,6 +113,22 @@
   .tile.votable{cursor:pointer;}
   .tile.votable:hover{background:var(--tile-hi);}
   .tile.used{background:var(--tile-used);color:var(--tile-used-ink);}
+  .tile.off{opacity:.3;cursor:default;}
+  .me-chip .streak{color:var(--focus);}
+  .fast{font-size:13px;font-weight:700;color:var(--ink-dim);}
+  .fact{margin:0;padding:12px 14px;border-radius:12px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.3);font-size:14px;line-height:1.45;}
+  .mv{font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:700;margin-left:4px;}
+  .mv.up{color:var(--good);} .mv.down{color:var(--bad);}
+  .wager{display:flex;flex-direction:column;gap:12px;}
+  .wager .w-head{font-family:"Unbounded",sans-serif;font-weight:900;font-size:24px;color:var(--pink);}
+  .wager .w-theme{font-family:"Unbounded",sans-serif;font-weight:700;font-size:17px;}
+  .wager .w-info{margin:0;color:var(--ink-dim);font-size:14px;line-height:1.45;}
+  .wager .w-quick{display:flex;gap:8px;flex-wrap:wrap;}
+  .wager .w-quick button{background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:999px;padding:8px 14px;font-weight:700;cursor:pointer;}
+  .wager .w-quick button:hover{border-color:var(--ink-faint);}
+  .wager .w-row{display:flex;gap:10px;align-items:center;}
+  .wager input{width:140px;background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:12px;padding:11px 13px;font-size:18px;font-family:"JetBrains Mono",monospace;}
+  .wager .w-status{font-weight:700;font-size:14px;}
   .tile.done-correct{background:rgba(57,242,164,.16);border-color:var(--good);color:var(--good);}
   .tile.done-wrong{background:rgba(255,93,108,.14);border-color:var(--bad);color:var(--bad);}
   .tile .pct{font-size:11px;font-family:"Manrope",sans-serif;opacity:.9;}
@@ -232,6 +248,7 @@
   <div class="me-chip" id="meChip" hidden>
     <span class="name" id="meName"></span>
     <span class="num score" id="meScore">0</span>
+    <span class="num streak" id="meStreak"></span>
     <span class="num rank" id="meRank"></span>
     <button type="button" id="logoutBtn">Выйти</button>
   </div>
@@ -298,12 +315,27 @@
     <div class="banner" id="banner"></div>
     <div class="board" id="board"></div>
 
+    <div class="card wager" id="wagerCard" hidden>
+      <div class="w-head">Финал со ставками</div>
+      <div class="w-theme" id="wTheme"></div>
+      <p class="w-info" id="wInfo"></p>
+      <div class="w-quick" id="wQuick"></div>
+      <div class="w-row">
+        <input id="wInput" type="number" inputmode="numeric" min="0" step="10" aria-label="Ставка">
+        <button class="btn primary" type="button" id="wBtn">Поставить</button>
+      </div>
+      <div class="w-status" id="wStatus"></div>
+      <div class="timer"><div class="timer-track"><div class="timer-fill" id="wTimerFill"></div></div><span class="timer-num" id="wTimerNum"></span></div>
+    </div>
+
     <div class="card qcard" id="qcard" hidden>
       <div class="pills"><span class="pill cat" id="qCat"></span><span class="pill pts" id="qPts"></span></div>
       <div class="timer" id="timer"><div class="timer-track"><div class="timer-fill" id="timerFill"></div></div><span class="timer-num" id="timerNum"></span></div>
       <p class="q-text" id="qText"></p>
       <div class="options" id="qOptions"></div>
       <div class="result-line" id="resultLine" hidden></div>
+      <div class="fast" id="fastLine" hidden></div>
+      <p class="fact" id="factLine" hidden></p>
       <div class="q-actions">
         <button class="btn primary" type="button" id="commitBtn" disabled>Ответить</button>
         <span class="q-status" id="qStatus"></span>
@@ -618,6 +650,8 @@
     switch(m.type){
       case "sync":
         setOffset(m.server_now);
+        S.final = m.final || null;
+        S.myWager = m.final ? m.final.my : (m.current && m.current.my_wager !== undefined ? m.current.my_wager : null);
         S.phase = m.phase; S.used = m.used || {}; S.current = m.current; S.vote = m.vote; S.voteWinner = m.vote_winner;
         S.lastReveal = m.last_reveal; S.myResult = m.my_result; S.top = m.top || []; S.participants = m.participants || 0;
         S.me = m.me; S.settings = m.settings; S.online = m.online; S.registered = m.registered;
@@ -634,7 +668,7 @@
       case "stats": S.online = m.online; S.registered = m.registered; renderOnline(); break;
       case "settings": S.settings = m.settings; renderChatForm(); renderSoloTab(); renderHome(); if(S.tab === "solo") loadSolo(); renderFinal(); break;
       case "vote_started":
-        S.phase = "voting"; S.vote = {tallies: {}, total: 0, my: null}; S.voteWinner = null; S.lastReveal = null;
+        S.phase = "voting"; S.vote = {tallies: {}, total: 0, my: null, level: m.level}; S.voteWinner = null; S.lastReveal = null;
         if(S.tab === "chat" && isMobile()) toast("Голосование: какую плитку открыть?");
         renderLive(); break;
       case "vote_tallies": if(S.vote){ S.vote.tallies = m.tallies; S.vote.total = m.total; renderBoard(); renderBanner(); } break;
@@ -650,12 +684,21 @@
       case "answer_ack": S.committed = m.option; renderQuestion(); break;
       case "answer_count": S.answered = m.count; renderQStatus(); break;
       case "time_up": if(S.phase === "question"){ S.phase = "locked"; renderQuestion(); } break;
-      case "cancelled": S.phase = "idle"; S.current = null; renderLive(); toast("Ведущий отменил вопрос"); break;
+      case "cancelled": S.phase = "idle"; S.current = null; S.final = null; renderLive(); toast("Ведущий отменил вопрос"); break;
+      case "final_started":
+        setOffset(m.server_now);
+        S.phase = "wager"; S.final = m; S.myWager = null; S.lastReveal = null; S.vote = null; S.voteWinner = null;
+        if(S.view === "app" && S.liveOpen && S.tab !== "live"){ setTab("live"); }
+        if(S.liveOpen) toast("Финал! Сделайте ставку");
+        renderLive(); break;
+      case "wager_ack": S.myWager = m.amount; renderWager(); break;
+      case "wager_count": if(S.final){ S.final.count = m.count; renderWager(); } break;
+      case "wager_closed": if(S.final){ S.final.closed = true; renderWager(); } break;
       case "revealed":
         S.phase = "revealed"; S.lastReveal = m; S.used = m.used; S.top = m.top; S.participants = m.participants;
         S.current = null; S.myResult = undefined; renderLive(); break;
       case "me":
-        S.me = {id: m.id, name: m.name, score: m.score, rank: m.rank, muted: m.muted};
+        S.me = {id: m.id, name: m.name, score: m.score, rank: m.rank, muted: m.muted, streak: m.streak, move: m.move};
         if("result" in m) S.myResult = m.result;
         renderHeader(); if(S.phase === "revealed") renderQuestion(); renderMini(); renderFinal(); break;
       case "finished": S.phase = "finished"; S.top = m.top; S.participants = m.participants; renderLive(); break;
@@ -676,6 +719,8 @@
   function renderHeader(){
     renderName();
     $("meScore").textContent = S.me ? S.me.score : 0;
+    $("meStreak").textContent = S.me && S.me.streak >= 2 ? "🔥" + S.me.streak : "";
+    $("meStreak").title = S.me && S.me.streak >= 2 ? "Правильных ответов подряд: " + S.me.streak : "";
     $("meRank").textContent = S.me && S.me.rank ? "#" + S.me.rank : "";
   }
   function renderOnline(){
@@ -684,8 +729,52 @@
 
   // ===================================================== rendering: live game
   function renderLive(){
-    renderBanner(); renderBoard(); renderQuestion(); renderMini(); renderFinal();
+    renderBanner(); renderBoard(); renderWager(); renderQuestion(); renderMini(); renderFinal();
   }
+  function fmtMult(x){ return String(x).replace(".", ","); }
+
+  // ----- final wager
+  var wTimer = null;
+  function wagerCap(){ return Math.max(S.me ? S.me.score : 0, S.final ? S.final.points : 0); }
+  function renderWager(){
+    var card = $("wagerCard");
+    var show = S.phase === "wager" && !!S.final;
+    card.hidden = !show;
+    clearInterval(wTimer);
+    if(!show) return;
+    var f = S.final, cap = wagerCap(), score = S.me ? S.me.score : 0, closed = f.closed;
+    $("wTheme").textContent = "Тема: " + f.category + " · вопрос за " + f.points;
+    $("wInfo").textContent = "У вас " + score + " " + plural(score, "очко", "очка", "очков") + ". Поставьте от 0 до " + cap +
+      (score < f.points ? " (если очков меньше " + f.points + ", можно поставить до " + f.points + ")" : "") +
+      ". Верный ответ прибавит ставку, неверный или пропуск — вычтет, но ниже нуля счёт не упадёт.";
+    var quick = $("wQuick"); quick.innerHTML = "";
+    [["0", 0], ["25%", 0.25], ["50%", 0.5], ["Ва-банк", 1]].forEach(function(o){
+      var b = el("button", "", o[0]); b.type = "button"; b.disabled = closed;
+      b.addEventListener("click", function(){ $("wInput").value = o[1] === 1 ? cap : Math.min(cap, Math.round(cap * o[1] / 10) * 10); });
+      quick.appendChild(b);
+    });
+    var inp = $("wInput");
+    inp.max = cap; inp.disabled = closed; $("wBtn").disabled = closed;
+    if(document.activeElement !== inp && inp.value === "") inp.value = S.myWager !== null && S.myWager !== undefined ? S.myWager : "";
+    var st = $("wStatus");
+    if(closed) st.textContent = "Ставки закрыты — " + (S.myWager ? "ваша ставка " + S.myWager + ". Ждём вопрос!" : "вы играете без ставки.");
+    else st.textContent = (S.myWager !== null && S.myWager !== undefined ? "Ставка принята: " + S.myWager + ". Можно изменить, пока идёт отсчёт." : "Вы ещё не поставили.") +
+      (f.count ? " Ставок: " + f.count : "");
+    st.style.color = S.myWager !== null && S.myWager !== undefined ? "var(--good)" : "var(--ink-dim)";
+    function tick(){
+      var remain = Math.max(0, f.deadline - serverNow());
+      $("wTimerNum").textContent = closed ? "0" : Math.ceil(remain);
+      $("wTimerFill").style.width = (closed ? 0 : Math.min(1, remain / (f.seconds || 30)) * 100) + "%";
+    }
+    tick();
+    if(!closed) wTimer = setInterval(tick, 250);
+  }
+  $("wBtn").addEventListener("click", function(){
+    var v = parseInt($("wInput").value, 10);
+    if(isNaN(v) || v < 0){ toast("Введите ставку числом"); return; }
+    if(v > wagerCap()){ v = wagerCap(); $("wInput").value = v; }
+    send({type: "wager", amount: v});
+  });
 
   function tileName(key){
     if(!key) return "";
@@ -700,7 +789,8 @@
       text = S.voteWinner ? "Игроки выбрали: " + tileName(S.voteWinner) : "Ждём, когда ведущий откроет вопрос";
       sub = S.voteWinner ? "Ведущий сейчас откроет вопрос" : "Следите за трансляцией";
     } else if(ph === "voting"){
-      text = "Голосование: какую плитку открыть?";
+      var lvl = S.vote ? S.vote.level : null;
+      text = lvl !== null && lvl !== undefined ? "Голосование: какой вопрос за " + S.points[lvl] + " открыть?" : "Голосование: какую плитку открыть?";
       sub = (S.vote && S.vote.my ? "Ваш голос: " + tileName(S.vote.my) + ". Можно передумать." : "Нажмите на плитку") +
         (S.vote ? " · проголосовали " + S.vote.total : "");
     } else if(ph === "locked"){ text = "Время вышло — ждём, когда ведущий откроет ответ"; }
@@ -728,7 +818,9 @@
           var t = el("button", "tile"); t.type = "button";
           t.appendChild(el("span", "", S.points[li]));
           var used = !!S.used[key];
+          var offRow = voting && S.vote.level !== null && S.vote.level !== undefined && li !== S.vote.level;
           if(used){ t.classList.add("used"); t.disabled = true; t.textContent = "✓"; }
+          else if(offRow){ t.classList.add("off"); t.disabled = true; }
           else if(voting){
             t.classList.add("votable");
             var n = S.vote.tallies[key] || 0;
@@ -771,7 +863,8 @@
     if(!q || (ph !== "question" && ph !== "locked" && !revealed)){ card.hidden = true; stopTimer(); return; }
     card.hidden = false;
     $("qCat").textContent = q.category;
-    $("qPts").textContent = q.points + " очков";
+    var isFinal = revealed ? S.lastReveal.final : q.final;
+    $("qPts").textContent = isFinal ? "Финал · " + (S.myWager ? "ставка " + S.myWager : "без ставки") : q.points + " очков";
     $("qText").textContent = q.q;
 
     $("timer").hidden = ph !== "question";
@@ -811,9 +904,24 @@
     rl.hidden = !revealed;
     if(revealed){
       var r = S.myResult;  // undefined until the personal result arrives
-      rl.textContent = r === undefined ? "" : r ? (r.correct ? "Верно! +" + r.delta + " очков" : "Неверно") : "Вы не ответили на этот вопрос";
+      var txt = "";
+      if(r === undefined) txt = "";
+      else if(!r) txt = "Вы не ответили на этот вопрос";
+      else if(r.wager !== undefined){
+        if(r.correct) txt = r.delta ? "Верно! Ставка сыграла: +" + r.delta : "Верно! Но вы играли без ставки";
+        else txt = (r.option === null ? "Вы не ответили" : "Неверно") + (r.delta ? ": −" + (-r.delta) : "");
+      } else if(r.correct){
+        txt = "Верно! +" + r.delta + " очков" + (r.mult > 1 ? " · ×" + fmtMult(r.mult) + " за серию 🔥" + r.streak : (r.streak === 2 ? " · ещё один верный — и будет бонус за серию" : ""));
+      } else txt = "Неверно";
+      rl.textContent = txt;
       rl.style.color = r ? (r.correct ? "var(--good)" : "var(--bad)") : "var(--ink-dim)";
     }
+    var fast = revealed && S.lastReveal.fastest;
+    $("fastLine").hidden = !fast;
+    if(fast) $("fastLine").textContent = "⚡ Быстрее всех: " + whoName(fast.id, fast.name) + " — " + fmtMult(fast.seconds) + " с";
+    var fact = revealed && S.lastReveal.fact;
+    $("factLine").hidden = !fact;
+    if(fact) $("factLine").textContent = "💡 " + fact;
     renderQStatus();
   }
   $("commitBtn").addEventListener("click", function(){
@@ -844,7 +952,9 @@
     rows.forEach(function(r, i){
       var row = el("div", "lb-row" + (r.id === S.uid ? " me" : ""));
       row.appendChild(el("span", "pl", (i + 1) + "."));
-      row.appendChild(el("span", "who", whoName(r.id, r.name) + (r.id === S.uid ? " · вы" : "")));
+      var who = el("span", "who", whoName(r.id, r.name) + (r.id === S.uid ? " · вы" : "") + (r.streak >= 3 ? " 🔥" : ""));
+      if(typeof r.move === "number" && r.move) who.appendChild(el("span", "mv " + (r.move > 0 ? "up" : "down"), (r.move > 0 ? "▲" : "▼") + Math.abs(r.move)));
+      row.appendChild(who);
       row.appendChild(el("span", "sc", r.score));
       container.appendChild(row);
     });

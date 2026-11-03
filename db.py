@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     score INTEGER NOT NULL DEFAULT 0,
     time REAL NOT NULL DEFAULT 0,
     answered INTEGER NOT NULL DEFAULT 0,
+    streak INTEGER NOT NULL DEFAULT 0,
     muted INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -53,16 +54,16 @@ class DB:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(SCHEMA)
-        # Databases created before logins existed: add the columns in place.
+        # Databases created by older versions: add the columns in place.
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(users)")}
-        for col in ("login", "login_key"):
+        for col, decl in (("login", "TEXT"), ("login_key", "TEXT"), ("streak", "INTEGER NOT NULL DEFAULT 0")):
             if col not in cols:
-                self.conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+                self.conn.execute(f"ALTER TABLE users ADD COLUMN {col} {decl}")
         self.conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_login_key ON users (login_key)")
 
     # ------------------------------------------------------------ users
     def all_users(self):
-        return self.conn.execute("SELECT id, login, score, time, answered, muted FROM users").fetchall()
+        return self.conn.execute("SELECT id, login, score, time, answered, streak, muted FROM users").fetchall()
 
     def create_user(self, uid, login, login_key, salt, pw):
         """Raises sqlite3.IntegrityError if the login is already taken."""
@@ -81,13 +82,13 @@ class DB:
         return self.conn.execute("SELECT id, login, salt, pw FROM users WHERE login_key = ?", (login_key,)).fetchone()
 
     def save_scores(self, rows):
-        """rows: iterable of (score, time, answered, uid)"""
+        """rows: iterable of (score, time, answered, streak, uid)"""
         with self.conn:
             self.conn.execute("BEGIN")
-            self.conn.executemany("UPDATE users SET score = ?, time = ?, answered = ? WHERE id = ?", rows)
+            self.conn.executemany("UPDATE users SET score = ?, time = ?, answered = ?, streak = ? WHERE id = ?", rows)
 
     def reset_scores(self):
-        self.conn.execute("UPDATE users SET score = 0, time = 0, answered = 0")
+        self.conn.execute("UPDATE users SET score = 0, time = 0, answered = 0, streak = 0")
 
     def set_muted(self, uid, muted):
         self.conn.execute("UPDATE users SET muted = ? WHERE id = ?", (1 if muted else 0, uid))

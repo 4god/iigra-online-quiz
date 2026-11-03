@@ -45,6 +45,8 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 QUESTION_SECONDS = int(os.environ.get("QUESTION_SECONDS", 30))
+# The final question: everyone bets part of their score after seeing only its theme.
+WAGER_SECONDS = int(os.environ.get("WAGER_SECONDS", 30))
 # Players can't join the broadcast (vote, answer, chat) before this moment.
 LIVE_OPENS_AT = datetime.fromisoformat(os.environ.get("LIVE_OPENS_AT", "2026-11-12T00:00:00+03:00")).timestamp()
 
@@ -122,7 +124,8 @@ def public_question(board, ci, li):
 db = DB(DATA_DIR / "iigra.db")
 
 players = {
-    r["id"]: {"name": r["login"], "score": r["score"], "time": r["time"], "answered": r["answered"], "muted": bool(r["muted"])}
+    r["id"]: {"name": r["login"], "score": r["score"], "time": r["time"], "answered": r["answered"],
+              "streak": r["streak"], "muted": bool(r["muted"])}
     for r in db.all_users()
 }
 sessions = {r["token"]: r["user_id"] for r in db.all_sessions()}
@@ -131,10 +134,11 @@ settings = {"chat_enabled": True, "slow": 5, "solo_open": False}
 settings.update(db.get_kv("settings", {}))
 
 game = {
-    "phase": "idle",          # idle | voting | question | locked | revealed | finished
+    "phase": "idle",          # idle | voting | wager | question | locked | revealed | finished
     "used": db.get_kv("used", {}),
-    "current": None,          # {ci, li, opened, deadline, answers: {uid: (option, seconds)}}
-    "vote": None,             # {votes: {uid: key}, tallies: {key: n}}
+    "current": None,          # {ci, li, opened, deadline, answers: {uid: (option, seconds)}, final}
+    "vote": None,             # {votes: {uid: key}, tallies: {key: n}, level: row index or None}
+    "final": None,            # {ci, li, deadline, closed, wagers: {uid: amount}} from the wager until the reveal
     "vote_winner": None,
     "last_reveal": None,
     "last_results": {},
@@ -145,6 +149,7 @@ if len(game["used"]) >= TOTAL_TILES:
 
 ranked = []
 rank_of = {}
+rank_move = {}  # uid -> places gained at the last reveal (negative: lost), "new" for a first entry
 
 
 def recompute_ranks():
@@ -156,7 +161,13 @@ def recompute_ranks():
 
 
 def top(n):
-    return [{"id": uid, "name": p["name"], "score": p["score"]} for uid, p in ranked[:n]]
+    return [{"id": uid, "name": p["name"], "score": p["score"], "streak": p["streak"], "move": rank_move.get(uid)}
+            for uid, p in ranked[:n]]
+
+
+def streak_mult(streak):
+    """×1.1 from the 3rd correct answer in a row, +0.1 for each one after that, at most ×1.5."""
+    return round(1 + 0.1 * max(0, min(streak, 7) - 2), 1)
 
 
 recompute_ranks()
@@ -306,8 +317,8 @@ class Conn:
 conns = set()
 user_conns = {}
 hosts = set()
-dirty = {"vote": False, "answers": False, "stats": True}
-last_sent = {"chat": 0.0, "vote": 0.0, "answers": 0.0, "stats": 0.0, "cleanup": 0.0}
+dirty = {"vote": False, "answers": False, "wagers": False, "stats": True}
+last_sent = {"chat": 0.0, "vote": 0.0, "answers": 0.0, "wagers": 0.0, "stats": 0.0, "cleanup": 0.0}
 
 
 def broadcast(obj):
@@ -405,7 +416,8 @@ def public_current():
     if not c:
         return None
     d = public_question(LIVE_BOARD, c["ci"], c["li"])
-    d.update({"deadline": c["deadline"], "locked": game["phase"] == "locked", "answered": len(c["answers"])})
+    d.update({"deadline": c["deadline"], "locked": game["phase"] == "locked", "answered": len(c["answers"]),
+              "final": c.get("final", False)})
     return d
 
 
@@ -413,7 +425,8 @@ def me_payload(uid):
     p = players.get(uid)
     if not p:
         return None
-    return {"id": uid, "name": p["name"], "score": p["score"], "rank": rank_of.get(uid), "muted": p["muted"]}
+    return {"id": uid, "name": p["name"], "score": p["score"], "rank": rank_of.get(uid), "muted": p["muted"],
+            "streak": p["streak"], "move": rank_move.get(uid)}
 
 
 def muted_list():
@@ -425,10 +438,12 @@ def sync_payload(uid=None, host=False):
     cur = public_current()
     if cur and uid and uid in game["current"]["answers"]:
         cur["my_answer"] = game["current"]["answers"][uid][0]
+    if cur and cur["final"] and game["final"]:
+        cur["my_wager"] = game["final"]["wagers"].get(uid)
     vote = None
     if game["vote"]:
         v = game["vote"]
-        vote = {"tallies": v["tallies"], "total": len(v["votes"]), "my": v["votes"].get(uid)}
+        vote = {"tallies": v["tallies"], "total": len(v["votes"]), "my": v["votes"].get(uid), "level": v["level"]}
     payload = {
         "type": "sync",
         "phase": phase,
@@ -436,6 +451,7 @@ def sync_payload(uid=None, host=False):
         "current": cur,
         "vote": vote,
         "vote_winner": game["vote_winner"],
+        "final": final_info(uid) if phase == "wager" else None,
         "last_reveal": game["last_reveal"] if phase == "revealed" else None,
         "my_result": game["last_results"].get(uid) if phase == "revealed" else None,
         "top": top(50 if phase == "finished" else 15),
@@ -464,11 +480,23 @@ def save_settings():
     broadcast({"type": "settings", "settings": settings})
 
 
-def start_vote():
+def free_levels():
+    return sorted({li for ci in range(N_CATS) for li in range(N_LEVELS) if tile_key(ci, li) not in game["used"]})
+
+
+def start_vote(level=None):
+    """level: a row index to vote within, "auto" for the cheapest row with open questions, anything else for all."""
     if game["phase"] not in ("idle", "revealed"):
         return
-    game.update(phase="voting", vote={"votes": {}, "tallies": {}}, vote_winner=None, last_reveal=None)
-    broadcast({"type": "vote_started"})
+    levels = free_levels()
+    if not levels:
+        return
+    if level == "auto":
+        level = levels[0]
+    elif isinstance(level, bool) or level not in levels:
+        level = None
+    game.update(phase="voting", vote={"votes": {}, "tallies": {}, "level": level}, vote_winner=None, last_reveal=None)
+    broadcast({"type": "vote_started", "level": level})
 
 
 def cast_vote(uid, ci, li):
@@ -476,7 +504,7 @@ def cast_vote(uid, ci, li):
     if game["phase"] != "voting" or not v or not valid_tile(ci, li):
         return
     key = tile_key(ci, li)
-    if key in game["used"]:
+    if key in game["used"] or (v["level"] is not None and li != v["level"]):
         return
     prev = v["votes"].get(uid)
     if prev == key:
@@ -500,13 +528,14 @@ def end_vote():
         best = max(tallies.values())
         winner = random.choice([k for k, n in tallies.items() if n == best])
     else:
-        free = [tile_key(ci, li) for ci in range(N_CATS) for li in range(N_LEVELS) if tile_key(ci, li) not in game["used"]]
+        free = [tile_key(ci, li) for ci in range(N_CATS) for li in range(N_LEVELS)
+                if tile_key(ci, li) not in game["used"] and v["level"] in (None, li)]
         winner = random.choice(free) if free else None
     game.update(phase="idle", vote=None, vote_winner=winner)
     broadcast({"type": "vote_ended", "winner": winner, "tallies": tallies, "total": len(v["votes"])})
 
 
-def open_question(ci, li):
+def open_question(ci, li, final=False):
     if game["phase"] not in ("idle", "voting", "revealed") or not valid_tile(ci, li):
         return
     if tile_key(ci, li) in game["used"]:
@@ -518,9 +547,66 @@ def open_question(ci, li):
         vote_winner=None,
         last_reveal=None,
         last_results={},
-        current={"ci": ci, "li": li, "opened": t, "deadline": t + QUESTION_SECONDS, "answers": {}},
+        current={"ci": ci, "li": li, "opened": t, "deadline": t + QUESTION_SECONDS, "answers": {}, "final": final},
     )
     broadcast({"type": "question_opened", "data": public_current(), "server_now": t})
+
+
+def final_info(uid=None):
+    f = game["final"]
+    cat = LIVE_BOARD[f["ci"]]
+    return {"category": cat["name"], "points": cat["questions"][f["li"]]["points"], "deadline": f["deadline"],
+            "seconds": WAGER_SECONDS, "closed": f["closed"], "count": len(f["wagers"]),
+            "my": f["wagers"].get(uid) if uid else None}
+
+
+def start_final():
+    """The most expensive open question becomes the final; players bet before it opens."""
+    if game["phase"] not in ("idle", "revealed"):
+        return
+    levels = free_levels()
+    if not levels:
+        return
+    li = levels[-1]
+    ci = random.choice([c for c in range(N_CATS) if tile_key(c, li) not in game["used"]])
+    t = now()
+    game.update(phase="wager", vote=None, vote_winner=None, last_reveal=None, last_results={}, current=None,
+                final={"ci": ci, "li": li, "deadline": t + WAGER_SECONDS, "closed": False, "wagers": {}})
+    broadcast({"type": "final_started", **final_info(), "server_now": t})
+
+
+def wager_cap(p, points):
+    # Everyone can play the final: whoever has less than the question is worth may bet up to its worth.
+    return max(p["score"], points)
+
+
+def place_wager(uid, amount):
+    f = game["final"]
+    p = players.get(uid)
+    if game["phase"] != "wager" or not f or f["closed"] or not p:
+        return
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+        return
+    points = LIVE_BOARD[f["ci"]]["questions"][f["li"]]["points"]
+    f["wagers"][uid] = max(0, min(int(amount), wager_cap(p, points)))
+    dirty["wagers"] = True
+    send_user(uid, {"type": "wager_ack", "amount": f["wagers"][uid]})
+
+
+def close_wagers():
+    f = game["final"]
+    if f and not f["closed"]:
+        f["closed"] = True
+        broadcast({"type": "wager_closed", "count": len(f["wagers"])})
+
+
+def open_final():
+    f = game["final"]
+    if game["phase"] != "wager" or not f:
+        return
+    close_wagers()
+    game["phase"] = "idle"
+    open_question(f["ci"], f["li"], final=True)
 
 
 def submit_answer(uid, option):
@@ -538,9 +624,9 @@ def submit_answer(uid, option):
 
 
 def cancel_question():
-    if not game["current"]:
+    if not game["current"] and game["phase"] != "wager":
         return
-    game.update(phase="idle", current=None)
+    game.update(phase="idle", current=None, final=None)
     broadcast({"type": "cancelled"})
 
 
@@ -550,8 +636,12 @@ def reveal():
         return
     q = LIVE_BOARD[c["ci"]]["questions"][c["li"]]
     pts, correct = q["points"], q["correct"]
+    final = game["final"] if c.get("final") else None
+    wagers = final["wagers"] if final else {}
     dist = [0, 0, 0, 0]
-    results, changed = {}, []
+    results, changed = {}, {}
+    fastest = None
+    prev_rank = dict(rank_of)
     for uid, (opt, dt) in c["answers"].items():
         p = players.get(uid)
         if not p:
@@ -559,31 +649,65 @@ def reveal():
         dist[opt] += 1
         p["answered"] += 1
         ok = opt == correct
+        r = {"option": opt, "correct": ok, "delta": 0}
+        if final:
+            r["wager"] = wagers.get(uid, 0)
+            r["delta"] = r["wager"] if ok else -min(r["wager"], p["score"])
+        else:
+            p["streak"] = p["streak"] + 1 if ok else 0
+            r["streak"] = p["streak"]
+            if ok:
+                r["mult"] = streak_mult(p["streak"])
+                r["delta"] = round(pts * r["mult"])
         if ok:
-            p["score"] += pts
             p["time"] = round(p["time"] + dt, 3)
-        results[uid] = {"option": opt, "correct": ok, "delta": pts if ok else 0}
-        changed.append((p["score"], p["time"], p["answered"], uid))
-    db.save_scores(changed)
+            if fastest is None or dt < fastest[1]:
+                fastest = (uid, dt)
+        p["score"] += r["delta"]
+        results[uid] = r
+        changed[uid] = p
+    if final:
+        for uid, w in wagers.items():  # a bet without an answer is lost as well
+            p = players.get(uid)
+            if uid in results or not p or not w:
+                continue
+            loss = min(w, p["score"])
+            p["score"] -= loss
+            results[uid] = {"option": None, "correct": False, "delta": -loss, "wager": w}
+            changed[uid] = p
+    else:
+        for uid, p in players.items():  # skipping a question breaks the streak
+            if p["streak"] and uid not in results:
+                p["streak"] = 0
+                changed[uid] = p
+    db.save_scores([(p["score"], p["time"], p["answered"], p["streak"], uid) for uid, p in changed.items()])
 
     game["used"][tile_key(c["ci"], c["li"])] = True
     db.set_kv("used", game["used"])
     recompute_ranks()
+    rank_move.clear()
+    rank_move.update({uid: prev_rank[uid] - r if uid in prev_rank else "new" for uid, r in rank_of.items()})
 
-    last = len(game["used"]) >= TOTAL_TILES
+    last = final is not None or len(game["used"]) >= TOTAL_TILES
     payload = {
         "type": "revealed",
         "question": public_question(LIVE_BOARD, c["ci"], c["li"]),
         "correct": correct,
         "dist": dist,
-        "answered": len(results),
+        "answered": sum(dist),
         "correct_count": dist[correct],
+        "fastest": {"id": fastest[0], "name": players[fastest[0]]["name"], "seconds": round(fastest[1], 1)} if fastest else None,
+        "fact": q.get("fact", ""),
+        "final": final is not None,
         "top": top(15),
         "participants": len(ranked),
         "used": game["used"],
         "last": last,
     }
-    game.update(phase="revealed", current=None, last_reveal=payload, last_results=results)
+    if final:
+        payload["wager_won"] = sum(1 for r in results.values() if r.get("wager") and r["correct"])
+        payload["wager_lost"] = sum(1 for r in results.values() if r.get("wager") and not r["correct"])
+    game.update(phase="revealed", current=None, last_reveal=payload, last_results=results, final=None)
     broadcast(payload)
     for uid in list(user_conns):
         me = me_payload(uid)
@@ -603,9 +727,10 @@ def finish():
 
 def reset_game():
     for p in players.values():
-        p.update(score=0, time=0, answered=0)
+        p.update(score=0, time=0, answered=0, streak=0)
     db.reset_scores()
-    game.update(phase="idle", used={}, current=None, vote=None, vote_winner=None,
+    rank_move.clear()
+    game.update(phase="idle", used={}, current=None, vote=None, vote_winner=None, final=None,
                 last_reveal=None, last_results={}, finish_at=None)
     db.set_kv("used", {})
     recompute_ranks()
@@ -631,6 +756,13 @@ def tick():
     if dirty["stats"] and t - last_sent["stats"] >= 2:
         broadcast({"type": "stats", "online": online_count(), "registered": len(players)})
         dirty["stats"], last_sent["stats"] = False, t
+    f = game["final"]
+    if game["phase"] == "wager" and f:
+        if dirty["wagers"] and t - last_sent["wagers"] >= 0.8:
+            broadcast({"type": "wager_count", "count": len(f["wagers"])})
+            dirty["wagers"], last_sent["wagers"] = False, t
+        if not f["closed"] and t >= f["deadline"]:
+            close_wagers()
     if game["phase"] == "question" and game["current"] and t >= game["current"]["deadline"]:
         game["phase"] = "locked"
         broadcast({"type": "time_up"})
@@ -691,7 +823,7 @@ def handle(c, msg):
         return send(c, sync_payload(None, host=True))
 
     if c.uid and not c.host:
-        if mtype in ("vote", "answer", "chat") and not live_open():
+        if mtype in ("vote", "answer", "chat", "wager") and not live_open():
             return send(c, {"type": "notice", "text": "Трансляция ещё не началась"})
         if mtype == "vote":
             cast_vote(c.uid, msg.get("ci"), msg.get("li"))
@@ -699,18 +831,24 @@ def handle(c, msg):
             submit_answer(c.uid, msg.get("option"))
         elif mtype == "chat":
             chat_from_player(c, msg.get("text", ""))
+        elif mtype == "wager":
+            place_wager(c.uid, msg.get("amount"))
         return
 
     if not c.host:
         return
     if mtype == "start_vote":
-        start_vote()
+        start_vote(msg.get("level"))
     elif mtype == "end_vote":
         end_vote()
     elif mtype == "open_question":
         open_question(msg.get("ci"), msg.get("li"))
     elif mtype == "reveal":
         reveal()
+    elif mtype == "start_final":
+        start_final()
+    elif mtype == "open_final":
+        open_final()
     elif mtype == "cancel_question":
         cancel_question()
     elif mtype == "finish":
@@ -839,7 +977,7 @@ async def register(body: RegisterBody, request: Request):
         db.create_user(uid, login, key, salt, pw)
     except sqlite3.IntegrityError:  # someone took the same login while we were hashing
         raise taken
-    players[uid] = {"name": login, "score": 0, "time": 0, "answered": 0, "muted": False}
+    players[uid] = {"name": login, "score": 0, "time": 0, "answered": 0, "streak": 0, "muted": False}
     dirty["stats"] = True
     return {"id": uid, "login": login, "token": new_session(uid), "live_open": live_open(), "live_opens_at": LIVE_OPENS_AT}
 

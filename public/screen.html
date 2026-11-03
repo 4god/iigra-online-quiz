@@ -58,6 +58,7 @@
   .tile .fill{position:absolute;left:0;right:0;bottom:0;background:rgba(57,242,164,.38);transition:height .5s ease;}
   .tile .num{position:relative;}
   .tile .pct{position:absolute;right:14px;bottom:10px;font-family:"JetBrains Mono",monospace;font-size:24px;font-weight:700;color:#eafff6;}
+  .tile.off{opacity:.28;}
   .tile.winner{background:var(--mint);color:#06281a;animation:pulse 1.2s ease-in-out infinite;}
   @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(57,242,164,.6);}50%{box-shadow:0 0 0 18px rgba(57,242,164,0);}}
 
@@ -91,6 +92,20 @@
   .qfoot .ans b{font-family:"JetBrains Mono",monospace;color:var(--ink);}
   .verdict{font-size:34px;font-weight:800;color:var(--ink);}
   .verdict b{color:var(--good);font-family:"JetBrains Mono",monospace;}
+  .fastest{margin-left:auto;font-size:28px;font-weight:800;color:var(--focus);}
+  .qcard.rev{gap:22px;}
+  .qcard.rev .opt{min-height:96px;padding:18px 24px;font-size:30px;}
+  .fact{margin:0;padding:20px 26px;border-radius:20px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.35);font-size:28px;font-weight:700;line-height:1.35;}
+  .chip.fin{background:var(--pink);border-color:transparent;color:#1d0010;}
+
+  /* ---------- final wager ---------- */
+  .wagerv{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:30px;padding:56px;}
+  .wagerv .big{font-family:"Unbounded",sans-serif;font-weight:900;font-size:120px;line-height:1;color:var(--pink);}
+  .wagerv .theme{font-family:"Unbounded",sans-serif;font-weight:700;font-size:52px;}
+  .wagerv .theme span{color:var(--ink-dim);}
+  .wagerv .hint{font-size:34px;font-weight:700;color:var(--ink-dim);max-width:1100px;line-height:1.4;}
+  .wagerv .row2{display:flex;gap:60px;align-items:baseline;font-size:34px;font-weight:800;color:var(--ink-dim);}
+  .wagerv .row2 b{font-family:"JetBrains Mono",monospace;font-size:72px;color:var(--ink);}
 
   /* ---------- lobby (before the first vote) ---------- */
   .lobby{flex:1;display:flex;align-items:center;gap:60px;padding:48px 64px;min-height:0;}
@@ -130,6 +145,8 @@
   .row .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .row .s{font-family:"JetBrains Mono",monospace;color:var(--mint);}
   .row.r1 .r{color:var(--mint);}
+  .row .mv{font-family:"JetBrains Mono",monospace;font-size:18px;margin-left:8px;}
+  .row .mv.up{color:var(--good);} .row .mv.down{color:var(--bad);}
   .empty{color:var(--ink-faint);font-size:24px;font-weight:700;}
   .join{padding:22px 26px;display:flex;flex-wrap:wrap;gap:16px 22px;align-items:center;}
   .join img{width:170px;height:170px;border-radius:14px;background:#fff;padding:8px;flex:none;}
@@ -169,11 +186,19 @@
 
     <div class="board" id="board"></div>
 
+    <section class="card wagerv" id="wagerView" hidden>
+      <div class="big">ФИНАЛ</div>
+      <div class="theme" id="wTheme"></div>
+      <div class="hint" id="wHint"></div>
+      <div class="row2"><div>Ставок <b id="wCount">0</b></div><div id="wLeftBox">Осталось <b id="wLeft">0</b></div></div>
+    </section>
+
     <section class="card qcard" id="qView" hidden>
       <div class="qmeta"><span class="chip" id="qCat"></span><span class="chip pts" id="qPts"></span></div>
       <div class="qtext" id="qText"></div>
       <div class="opts" id="qOpts"></div>
       <div class="qfoot" id="qFoot"></div>
+      <p class="fact" id="qFact" hidden></p>
     </section>
 
     <section class="card final" id="finalView" hidden>
@@ -216,7 +241,7 @@
   var S = {
     phase: "idle", used: {}, current: null, vote: null, voteWinner: null, lastReveal: null,
     top: [], participants: 0, online: 0, registered: 0, categories: [], points: [100,200,300,400,500],
-    qSeconds: 30, offset: 0, liveOpen: true, liveOpensAt: 0, answered: 0
+    qSeconds: 30, offset: 0, liveOpen: true, liveOpensAt: 0, answered: 0, final: null
   };
 
   // ---------------------------------------------------- scaling
@@ -249,7 +274,10 @@
       return setStatus("Игра начнётся " + d.getDate() + " " + MONTHS[d.getMonth()], "wait");
     }
     switch(S.phase){
-      case "voting": return setStatus("Голосуйте: какой вопрос открыть?", "hot");
+      case "voting":
+        var lvl = S.vote ? S.vote.level : null;
+        return setStatus(lvl !== null && lvl !== undefined ? "Голосуйте: какой вопрос за " + S.points[lvl] + "?" : "Голосуйте: какой вопрос открыть?", "hot");
+      case "wager": return setStatus(S.final && S.final.closed ? "Ставки сделаны" : "Делайте ставки в телефоне!", "hot");
       case "question": return setStatus("Отвечайте в игре!", "hot");
       case "locked": return setStatus("Время вышло");
       case "revealed": return setStatus("Правильный ответ");
@@ -270,7 +298,8 @@
       col.appendChild(el("div", "cat", name));
       S.points.forEach(function(pts, li){
         var key = ci + "-" + li, used = !!S.used[key];
-        var t = el("div", "tile" + (used ? " used" : "") + (!used && key === S.voteWinner && S.phase === "idle" ? " winner" : ""));
+        var off = S.phase === "voting" && S.vote && S.vote.level !== null && S.vote.level !== undefined && li !== S.vote.level;
+        var t = el("div", "tile" + (used ? " used" : "") + (off && !used ? " off" : "") + (!used && key === S.voteWinner && S.phase === "idle" ? " winner" : ""));
         if(!used && total){
           var n = tallies[key] || 0, pct = Math.round(n / total * 100);
           var f = el("div", "fill"); f.style.height = pct + "%"; t.appendChild(f);
@@ -292,8 +321,11 @@
     var rv = S.phase === "revealed" ? S.lastReveal : null;
     var q = rv ? rv.question : S.current;
     if(!q) return;
+    var isFinal = rv ? rv.final : q.final;
     $("qCat").textContent = q.category;
-    $("qPts").textContent = q.points;
+    $("qPts").textContent = isFinal ? "Финал · ставки" : q.points;
+    $("qPts").className = "chip " + (isFinal ? "fin" : "pts");
+    $("qView").className = "card qcard" + (rv ? " rev" : "");
     $("qText").textContent = q.q;
     $("qText").className = "qtext " + sizeClass(q.q);
 
@@ -322,8 +354,9 @@
       var v = el("div", "verdict");
       v.appendChild(document.createTextNode("Верно ответили "));
       v.appendChild(el("b", "", rv.correct_count + " из " + rv.answered));
-      v.appendChild(document.createTextNode(" (" + pct + "%)"));
+      v.appendChild(document.createTextNode(" (" + pct + "%)" + (rv.final ? " · ставки сыграли у " + rv.wager_won : "")));
       foot.appendChild(v);
+      if(rv.fastest) foot.appendChild(el("div", "fastest", "⚡ Быстрее всех: " + who(rv.fastest) + " — " + String(rv.fastest.seconds).replace(".", ",") + " с"));
     } else {
       var ans = el("div", "ans");
       ans.appendChild(document.createTextNode("Ответили: "));
@@ -335,6 +368,9 @@
       foot.appendChild(secs);
       tickTimer();
     }
+    var fact = rv && rv.fact;
+    $("qFact").hidden = !fact;
+    if(fact) $("qFact").textContent = "💡 " + fact;
   }
 
   function tickTimer(){
@@ -348,6 +384,24 @@
     secs.textContent = left > 0 ? Math.ceil(left) : "0";
   }
   setInterval(tickTimer, 200);
+
+  function renderWager(){
+    var f = S.final;
+    if(!f) return;
+    $("wTheme").innerHTML = "";
+    $("wTheme").appendChild(document.createTextNode(f.category));
+    $("wTheme").appendChild(el("span", "", " · " + f.points));
+    $("wHint").textContent = f.closed ? "Ставки сделаны — сейчас откроем вопрос" :
+      "Вопрос пока не видит никто. Поставьте в телефоне часть своих очков: верный ответ прибавит ставку, неверный — вычтет.";
+    $("wCount").textContent = f.count || 0;
+    $("wLeftBox").hidden = !!f.closed;
+    tickWager();
+  }
+  function tickWager(){
+    if(S.phase !== "wager" || !S.final || S.final.closed) return;
+    $("wLeft").textContent = Math.max(0, Math.ceil(S.final.deadline - serverNow()));
+  }
+  setInterval(tickWager, 250);
 
   function renderFinal(){
     var top = S.top;
@@ -382,7 +436,9 @@
     S.top.slice(0, 10).forEach(function(r, i){
       var row = el("div", "row" + (i === 0 ? " r1" : ""));
       row.appendChild(el("span", "r", (i + 1) + "."));
-      row.appendChild(el("span", "n", who(r)));
+      var n = el("span", "n", who(r) + (r.streak >= 3 ? " 🔥" + r.streak : ""));
+      if(typeof r.move === "number" && r.move) n.appendChild(el("span", "mv " + (r.move > 0 ? "up" : "down"), (r.move > 0 ? "▲" : "▼") + Math.abs(r.move)));
+      row.appendChild(n);
       row.appendChild(el("span", "s", r.score + ""));
       list.appendChild(row);
     });
@@ -391,14 +447,17 @@
   function renderAll(){
     var showQ = (S.phase === "question" || S.phase === "locked") && S.current || (S.phase === "revealed" && S.lastReveal);
     var showFinal = S.phase === "finished";
+    var showWager = S.phase === "wager" && !!S.final;
     // Until the host starts the first vote, a big QR code fills the screen so people can scan it from the stream.
-    var showLobby = !showQ && !showFinal && S.phase === "idle" && !S.voteWinner && !Object.keys(S.used).length;
+    var showLobby = !showQ && !showFinal && !showWager && S.phase === "idle" && !S.voteWinner && !Object.keys(S.used).length;
     $("lobbyView").hidden = !showLobby;
     $("joinCard").hidden = showLobby;
-    $("board").hidden = !!(showQ || showFinal || showLobby);
+    $("board").hidden = !!(showQ || showFinal || showLobby || showWager);
+    $("wagerView").hidden = !showWager;
     $("qView").hidden = !showQ;
     $("finalView").hidden = !showFinal;
     if(showFinal) renderFinal();
+    else if(showWager) renderWager();
     else if(showQ) renderQuestion();
     else if(!showLobby) renderBoard();
     renderStatus();
@@ -417,10 +476,16 @@
         S.online = m.online; S.registered = m.registered; S.categories = m.categories || []; S.points = m.points || S.points;
         S.qSeconds = m.question_seconds || 30; S.offset = m.server_now - Date.now() / 1000;
         S.liveOpen = m.live_open; S.liveOpensAt = m.live_opens_at; S.answered = m.current ? m.current.answered || 0 : 0;
+        S.final = m.final || null;
         break;
       case "stats": S.online = m.online; S.registered = m.registered; break;
-      case "vote_started": S.phase = "voting"; S.vote = {tallies: {}, total: 0}; S.voteWinner = null; S.lastReveal = null; break;
-      case "vote_tallies": if(S.phase === "voting") S.vote = {tallies: m.tallies, total: m.total}; break;
+      case "vote_started": S.phase = "voting"; S.vote = {tallies: {}, total: 0, level: m.level}; S.voteWinner = null; S.lastReveal = null; break;
+      case "vote_tallies": if(S.phase === "voting" && S.vote){ S.vote.tallies = m.tallies; S.vote.total = m.total; } break;
+      case "final_started":
+        S.phase = "wager"; S.final = m; S.lastReveal = null; S.vote = null; S.voteWinner = null; S.offset = m.server_now - Date.now() / 1000;
+        break;
+      case "wager_count": if(S.final){ S.final.count = m.count; var wc = $("wCount"); if(wc) wc.textContent = m.count; } return;
+      case "wager_closed": if(S.final){ S.final.closed = true; } break;
       case "vote_ended": S.phase = "idle"; S.vote = null; S.voteWinner = m.winner; break;
       case "question_opened":
         S.phase = "question"; S.current = m.data; S.voteWinner = null; S.vote = null; S.lastReveal = null;
@@ -430,7 +495,7 @@
         if(S.phase === "question" || S.phase === "locked"){ var a = document.querySelector(".ans b"); if(a) a.textContent = m.count; }
         return;
       case "time_up": S.phase = "locked"; break;
-      case "cancelled": S.phase = "idle"; S.current = null; break;
+      case "cancelled": S.phase = "idle"; S.current = null; S.final = null; break;
       case "revealed":
         S.phase = "revealed"; S.lastReveal = m; S.used = m.used; S.top = m.top; S.participants = m.participants; S.current = null;
         break;

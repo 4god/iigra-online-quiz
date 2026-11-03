@@ -69,7 +69,7 @@ async def main():
         w = await websockets.connect(WS)
         await w.send(json.dumps({"type": "auth", "token": u["token"]}))
         s = await recv_until(w, "sync")
-        assert s["me"]["id"] == u["id"]
+        assert s["me"]["id"] == u["id"] and s["me"]["streak"] == 0, s["me"]  # fresh accounts must sync before any reset
         pws.append(w)
 
     # vote: 2 votes for 0-0, 1 for 1-1

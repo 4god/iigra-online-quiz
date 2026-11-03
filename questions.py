@@ -5,7 +5,8 @@
   live_questions.csv  вопросы трансляции — только у организатора, в git не попадает
 
 Столбцы (порядок любой, разделитель «;» или «,», кодировка UTF-8 или Windows-1251):
-  Вариант | Тема | Очки | Вопрос | Правильный ответ | Неверный 1 | Неверный 2 | Неверный 3
+  Вариант | Тема | Очки | Вопрос | Правильный ответ | Неверный 1 | Неверный 2 | Неверный 3 | Факт
+«Факт» необязателен: короткий интересный факт, который показывается после правильного ответа.
 
 В каждом варианте 5 тем, в каждой теме по одному вопросу на 100, 200, 300, 400 и 500 очков.
 Порядок ответов на экране перемешивается автоматически.
@@ -26,11 +27,11 @@ class QuestionsError(Exception):
     pass
 
 
-def _question(points, raw):
+def _question(points, raw, fact=""):
     text, correct, *wrong = raw
     options = [correct, *wrong]
     random.Random(text).shuffle(options)  # stable: the same order on every restart
-    return {"points": points, "q": text, "options": options, "correct": options.index(correct)}
+    return {"points": points, "q": text, "options": options, "correct": options.index(correct), "fact": fact}
 
 
 def read_text(path):
@@ -54,6 +55,7 @@ def parse_csv(text, source):
     if missing:
         raise QuestionsError(f"{source}: нет столбцов {', '.join(missing)}. Первая строка должна быть: {'; '.join(COLUMNS)}")
     idx = {c: header.index(c.lower()) for c in COLUMNS}
+    fact_col = header.index("факт") if "факт" in header else None
 
     errors = []
     variants = {}
@@ -94,7 +96,8 @@ def parse_csv(text, source):
         if points in slot:
             errors.append(f"{where}: в варианте «{label}», теме «{theme}» уже есть вопрос на {points}")
             continue
-        slot[points] = (text, *options)
+        fact = row[fact_col].strip() if fact_col is not None and fact_col < len(row) else ""
+        slot[points] = ((text, *options), fact)
 
     boards = {}
     for label, themes in variants.items():
@@ -109,7 +112,7 @@ def parse_csv(text, source):
                 bad = True
         if not bad:
             boards[label] = [
-                {"name": theme, "questions": [_question(p, slot[p]) for p in POINTS]}
+                {"name": theme, "questions": [_question(p, *slot[p]) for p in POINTS]}
                 for theme, slot in themes.items()
             ]
     if errors:
