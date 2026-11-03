@@ -120,10 +120,10 @@
   .row .s{font-family:"JetBrains Mono",monospace;color:var(--mint);}
   .row.r1 .r{color:var(--mint);}
   .empty{color:var(--ink-faint);font-size:24px;font-weight:700;}
-  .join{padding:24px 26px;display:flex;gap:22px;align-items:center;}
-  .join img{width:190px;height:190px;border-radius:14px;background:#fff;padding:8px;flex:none;}
+  .join{padding:22px 26px;display:flex;flex-wrap:wrap;gap:16px 22px;align-items:center;}
+  .join img{width:170px;height:170px;border-radius:14px;background:#fff;padding:8px;flex:none;}
   .join .t1{font-family:"Unbounded",sans-serif;font-weight:800;font-size:26px;}
-  .join .url{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:21px;color:var(--mint);margin-top:12px;word-break:break-all;}
+  .join .url{flex-basis:100%;text-align:center;font-family:"JetBrains Mono",monospace;font-weight:700;font-size:26px;color:var(--mint);}
   .join .t2{font-size:19px;color:var(--ink-dim);font-weight:700;margin-top:10px;line-height:1.35;}
 
   .conn{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font-size:18px;font-weight:700;color:var(--focus);}
@@ -167,9 +167,9 @@
       <img id="qr" src="/qr" alt="QR-код для входа в игру">
       <div>
         <div class="t1">Играйте с нами</div>
-        <div class="url" id="joinUrl"></div>
         <div class="t2">Наведите камеру на код. Регистрация — минута, имя и телефон не нужны.</div>
       </div>
+      <div class="url" id="joinUrl"></div>
     </section>
   </aside>
 
