@@ -130,6 +130,8 @@ async def main():
     print("finished, participants:", fin["participants"])
 
     # self-paced: closed by default
+    await host.send(json.dumps({"type": "set_solo_open", "open": False}))  # an interrupted earlier run may have left it open
+    await asyncio.sleep(0.5)
     st, r = http("POST", "/api/solo/start", {"variant": 0}, users[0]["token"])
     assert st == 403, r
     await host.send(json.dumps({"type": "set_solo_open", "open": True}))

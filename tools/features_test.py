@@ -1,6 +1,6 @@
 """Game mechanics test: voting by rows, answer streaks, the final wager, fastest answer and facts.
 
-    python tools/features_test.py http://127.0.0.1:8765 HOSTKEY
+    python tools/features_test.py http://127.0.0.1:8765 HOSTKEY [questions.csv]
 
 Resets the game (scores to zero) — run it on a test server or before the broadcast, never during one.
 The server must have LIVE_OPENS_AT in the past. Correct answers are taken from live_questions.csv
@@ -12,8 +12,8 @@ sys.path.insert(0, ROOT)
 import websockets
 from questions import SETS, load_single_board, read_text
 
-LIVE_FILE = os.path.join(ROOT, "live_questions.csv")
-BOARD = load_single_board(read_text(LIVE_FILE), "live_questions.csv") if os.path.exists(LIVE_FILE) else SETS[0]
+LIVE_FILE = sys.argv[3] if len(sys.argv) > 3 else os.path.join(ROOT, "live_questions.csv")
+BOARD = load_single_board(read_text(LIVE_FILE), LIVE_FILE) if os.path.exists(LIVE_FILE) else SETS[0]
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8765"
 KEY = sys.argv[2] if len(sys.argv) > 2 else "test123"
 WS = BASE.replace("http", "ws", 1) + "/ws"
@@ -59,7 +59,7 @@ async def main():
         me = await until(ws["streaker"], "me")
         assert me["result"]["delta"] == expect[i], (i, me["result"])
         assert rv["fastest"]["name"] == a["login"], rv["fastest"]
-        assert rv["fact"] or not os.path.exists(LIVE_FILE), "broadcast questions should have facts"
+        assert rv["fact"] or len(sys.argv) > 3 or not os.path.exists(LIVE_FILE), "broadcast questions should have facts"
         print(f"q{i+1}: delta {me['result']['delta']} mult {me['result']['mult']} streak {me['result']['streak']} | fastest {rv['fastest']} | top moves {[(t['name'], t['move'], t['streak']) for t in rv['top']]}")
     assert me["score"] == 430 and me["streak"] == 4, me
     # final: streaker bets 300 of 430 and is right, wrongo bets 500 (cap = 500 as he has 0) and is wrong, sleepy bets but does not answer
