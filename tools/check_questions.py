@@ -1,4 +1,6 @@
-"""Проверка таблиц с вопросами перед запуском:  python tools/check_questions.py
+"""Проверка таблиц с вопросами перед запуском:  python tools/check_questions.py [--allow-public]
+
+--allow-public — для тестовой копии игры: вопросы «трансляции» можно брать из обычных вариантов.
 
 Проверяет questions.csv и (если есть) live_questions.csv: структуру каждого варианта
 и то, что вопросы трансляции не повторяют вопросы из обычных вариантов.
@@ -37,7 +39,9 @@ if os.path.exists("live_questions.csv"):
             ok = False
             print("!  Этих файлов нет в папке media/: " + ", ".join(missing))
         dup = [q["q"] for c in live for q in c["questions"] if q["q"].strip().lower() in public]
-        if dup:
+        if dup and "--allow-public" in sys.argv:
+            print(f"  {len(dup)} вопросов взяты из обычных вариантов — для тестовой копии это нормально")
+        elif dup:
             ok = False
             print("!  Эти вопросы трансляции есть и в обычных вариантах (набор должен быть уникальным):")
             for d in dup:

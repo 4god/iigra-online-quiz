@@ -7,6 +7,8 @@
 #                         [--media /path/media]   — папка с картинками и видео к вопросам
 #                         [--name iigra-test --port 8001]   — вторая, независимая копия игры на той же машине
 #                                                             (своя база, свой ключ, свой адрес через --domain)
+#                         [--allow-public-questions]        — для тестовой копии: набор «трансляции» можно собрать
+#                                                             из обычных вариантов
 #
 # Повторный запуск безопасен: обновит код и перезапустит сервис, база игроков сохранится.
 set -euo pipefail
@@ -21,6 +23,7 @@ OPENS_AT=""
 LIVE_FILE=""
 MEDIA_SRC=""
 PUBLIC_IP=""
+CHECK_ARGS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -33,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --ip) PUBLIC_IP="$2"; shift 2 ;;
     --name) NAME="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
+    --allow-public-questions) CHECK_ARGS="--allow-public"; shift ;;
     *) echo "Неизвестный параметр: $1"; exit 1 ;;
   esac
 done
@@ -75,7 +79,7 @@ python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
 echo "==> Проверка таблиц с вопросами"
-(cd "$APP_DIR" && .venv/bin/python tools/check_questions.py)
+(cd "$APP_DIR" && .venv/bin/python tools/check_questions.py $CHECK_ARGS)
 
 id iigra >/dev/null 2>&1 || useradd --system --home /var/lib/iigra --shell /usr/sbin/nologin iigra
 mkdir -p "$DATA_DIR"
