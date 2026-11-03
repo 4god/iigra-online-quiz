@@ -42,6 +42,8 @@ from questions import HARD, POINTS, SETS, QuestionsError, _question, load_single
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data"))
+MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", BASE_DIR / "media"))  # pictures and videos for questions, not in git
+MEDIA_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.(jpe?g|png|gif|webp|mp4|webm)", re.IGNORECASE)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 QUESTION_SECONDS = int(os.environ.get("QUESTION_SECONDS", 30))
@@ -113,10 +115,19 @@ def valid_tile(ci, li):
     return isinstance(ci, int) and isinstance(li, int) and 0 <= ci < N_CATS and 0 <= li < N_LEVELS
 
 
+def media_info(value):
+    """CSV media value -> {url, kind} for the clients; a bare file name is served from MEDIA_DIR."""
+    if not value:
+        return None
+    url = value if value.startswith("https://") else "/media/" + value
+    return {"url": url, "kind": "video" if value.lower().endswith((".mp4", ".webm")) else "image"}
+
+
 def public_question(board, ci, li):
     cat = board[ci]
     q = cat["questions"][li]
-    return {"ci": ci, "li": li, "category": cat["name"], "points": q["points"], "q": q["q"], "options": q["options"]}
+    return {"ci": ci, "li": li, "category": cat["name"], "points": q["points"], "q": q["q"], "options": q["options"],
+            "media": media_info(q.get("media"))}
 
 
 # ---------------------------------------------------------------- storage & in-memory state
@@ -698,6 +709,7 @@ def reveal():
         "correct_count": dist[correct],
         "fastest": {"id": fastest[0], "name": players[fastest[0]]["name"], "seconds": round(fastest[1], 1)} if fastest else None,
         "fact": q.get("fact", ""),
+        "media_answer": media_info(q.get("media_answer")),
         "final": final is not None,
         "top": top(15),
         "participants": len(ranked),
@@ -1265,6 +1277,15 @@ def old_links():
 @app.get("/host")
 def host_page():
     return FileResponse(BASE_DIR / "public" / "host.html")
+
+
+@app.get("/media/{name}")
+def media_file(name: str):
+    # Only picture and video names: anything else in the folder (notes, credits) stays private.
+    path = MEDIA_DIR / name
+    if not MEDIA_NAME.fullmatch(name) or not path.is_file():
+        raise HTTPException(404)
+    return FileResponse(path, headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/screen")

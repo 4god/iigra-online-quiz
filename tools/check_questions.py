@@ -29,6 +29,13 @@ if os.path.exists("live_questions.csv"):
     try:
         live = load_single_board(read_text("live_questions.csv"), "live_questions.csv")
         print("live_questions.csv: 25 вопросов трансляции")
+        files = {q[k] for c in live for q in c["questions"] for k in ("media", "media_answer") if q[k] and not q[k].startswith("https://")}
+        missing = sorted(f for f in files if not os.path.exists(os.path.join("media", f)))
+        if files:
+            print(f"  картинок и видео из папки media/: {len(files)}")
+        if missing:
+            ok = False
+            print("!  Этих файлов нет в папке media/: " + ", ".join(missing))
         dup = [q["q"] for c in live for q in c["questions"] if q["q"].strip().lower() in public]
         if dup:
             ok = False

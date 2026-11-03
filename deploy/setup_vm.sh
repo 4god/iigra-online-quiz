@@ -4,6 +4,7 @@
 #
 #   sudo bash setup_vm.sh --host-key МОЙКЛЮЧ [--domain game.example.ru] [--ip 1.2.3.4] [--no-https]
 #                         [--opens-at 2026-11-12T19:00:00+03:00] [--live-questions /path/live_questions.csv]
+#                         [--media /path/media]   — папка с картинками и видео к вопросам
 #
 # Повторный запуск безопасен: обновит код и перезапустит сервис, база игроков сохранится.
 set -euo pipefail
@@ -16,6 +17,7 @@ DOMAIN=""
 HTTPS=1
 OPENS_AT=""
 LIVE_FILE=""
+MEDIA_SRC=""
 PUBLIC_IP=""
 
 while [[ $# -gt 0 ]]; do
@@ -25,6 +27,7 @@ while [[ $# -gt 0 ]]; do
     --no-https) HTTPS=0; shift ;;
     --opens-at) OPENS_AT="$2"; shift 2 ;;
     --live-questions) LIVE_FILE="$2"; shift 2 ;;
+    --media) MEDIA_SRC="$2"; shift 2 ;;
     --ip) PUBLIC_IP="$2"; shift 2 ;;
     *) echo "Неизвестный параметр: $1"; exit 1 ;;
   esac
@@ -46,6 +49,10 @@ else
 fi
 if [[ -n "$LIVE_FILE" ]]; then
   cp "$LIVE_FILE" "$APP_DIR/live_questions.${LIVE_FILE##*.}"
+fi
+if [[ -n "$MEDIA_SRC" ]]; then
+  mkdir -p "$APP_DIR/media"
+  cp -R "$MEDIA_SRC"/. "$APP_DIR/media/"
 fi
 if [[ ! -f "$APP_DIR/live_questions.csv" && ! -f "$APP_DIR/live_questions.json" ]]; then
   echo "!!  live_questions.csv не найден — будет играться обычный вариант (см. GUIDE.md)"

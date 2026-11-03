@@ -7,6 +7,8 @@
 Столбцы (порядок любой, разделитель «;» или «,», кодировка UTF-8 или Windows-1251):
   Вариант | Тема | Очки | Вопрос | Правильный ответ | Неверный 1 | Неверный 2 | Неверный 3 | Факт
 «Факт» необязателен: короткий интересный факт, который показывается после правильного ответа.
+«Медиа» и «Медиа к ответу» необязательны: картинка или видео к вопросу и после ответа — имя файла из папки
+media/ (например, a1b2c3.jpg) или полная ссылка https://…. Видео (.mp4, .webm) играет только на экране трансляции.
 
 В каждом варианте 5 тем, в каждой теме по одному вопросу на 100, 200, 300, 400 и 500 очков.
 Порядок ответов на экране перемешивается автоматически.
@@ -15,23 +17,27 @@
 import csv
 import io
 import random
+import re
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 POINTS = [100, 200, 300, 400, 500]
 N_THEMES = 5
 COLUMNS = ["Вариант", "Тема", "Очки", "Вопрос", "Правильный ответ", "Неверный 1", "Неверный 2", "Неверный 3"]
+OPTIONAL = {"fact": "факт", "media": "медиа", "media_answer": "медиа к ответу"}
+MEDIA_RE = re.compile(r"(https://\S+|[A-Za-z0-9][A-Za-z0-9._-]*)\.(jpe?g|png|gif|webp|mp4|webm)", re.IGNORECASE)
 
 
 class QuestionsError(Exception):
     pass
 
 
-def _question(points, raw, fact=""):
+def _question(points, raw, fact="", media="", media_answer=""):
     text, correct, *wrong = raw
     options = [correct, *wrong]
     random.Random(text).shuffle(options)  # stable: the same order on every restart
-    return {"points": points, "q": text, "options": options, "correct": options.index(correct), "fact": fact}
+    return {"points": points, "q": text, "options": options, "correct": options.index(correct),
+            "fact": fact, "media": media, "media_answer": media_answer}
 
 
 def read_text(path):
@@ -55,7 +61,7 @@ def parse_csv(text, source):
     if missing:
         raise QuestionsError(f"{source}: нет столбцов {', '.join(missing)}. Первая строка должна быть: {'; '.join(COLUMNS)}")
     idx = {c: header.index(c.lower()) for c in COLUMNS}
-    fact_col = header.index("факт") if "факт" in header else None
+    extra = {key: header.index(name) for key, name in OPTIONAL.items() if name in header}
 
     errors = []
     variants = {}
@@ -96,8 +102,12 @@ def parse_csv(text, source):
         if points in slot:
             errors.append(f"{where}: в варианте «{label}», теме «{theme}» уже есть вопрос на {points}")
             continue
-        fact = row[fact_col].strip() if fact_col is not None and fact_col < len(row) else ""
-        slot[points] = ((text, *options), fact)
+        more = {key: row[col].strip() if col < len(row) else "" for key, col in extra.items()}
+        bad_media = [v for k, v in more.items() if k.startswith("media") and v and not MEDIA_RE.fullmatch(v)]
+        if bad_media:
+            errors.append(f"{where}: «{bad_media[0]}» — нужно имя файла картинки или видео (.jpg, .png, .gif, .webp, .mp4, .webm) или ссылка https://")
+            continue
+        slot[points] = ((text, *options), more)
 
     boards = {}
     for label, themes in variants.items():
@@ -112,7 +122,7 @@ def parse_csv(text, source):
                 bad = True
         if not bad:
             boards[label] = [
-                {"name": theme, "questions": [_question(p, *slot[p]) for p in POINTS]}
+                {"name": theme, "questions": [_question(p, slot[p][0], **slot[p][1]) for p in POINTS]}
                 for theme, slot in themes.items()
             ]
     if errors:
