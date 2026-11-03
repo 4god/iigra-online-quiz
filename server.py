@@ -4,6 +4,7 @@
   /        — игроки: регистрация (логин + пароль, ID выдаётся сервером), игра, чат, самостоятельные варианты
   /host    — пульт ведущего: голосования, вопросы, модерация чата, итоги
   /verify  — проверка кодов призов за самостоятельные варианты
+  /screen  — экран для трансляции: поле, вопрос, результаты, лидеры, QR (только просмотр)
 
 Рассчитано на ~1000 одновременных игроков: у каждого подключения своя очередь
 исходящих сообщений (медленный телефон не тормозит остальных), а частые события —
@@ -675,6 +676,9 @@ def handle(c, msg):
         user_conns.setdefault(uid, set()).add(c)
         dirty["stats"] = True
         return send(c, sync_payload(uid))
+    if mtype == "watch":
+        # The broadcast screen: no account, gets only what every player sees.
+        return send(c, sync_payload(None))
     if mtype == "host_auth":
         if host_fail_ip.blocked(c.ip):
             return send(c, {"type": "error", "message": "Слишком много попыток, подождите 10 минут"})
@@ -1123,6 +1127,11 @@ def old_links():
 @app.get("/host")
 def host_page():
     return FileResponse(BASE_DIR / "public" / "host.html")
+
+
+@app.get("/screen")
+def screen_page():
+    return FileResponse(BASE_DIR / "public" / "screen.html")
 
 
 @app.get("/verify")

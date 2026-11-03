@@ -52,6 +52,15 @@ async def main():
     await recv_until(host, "host_ok")
     hsync = await recv_until(host, "sync")
     print("host sync: live_unique =", hsync["live_unique"], "| categories:", hsync["categories"][:2])
+
+    # broadcast screen: no account, read-only, sees what every player sees
+    screen = await websockets.connect(WS)
+    await screen.send(json.dumps({"type": "watch"}))
+    ssync = await recv_until(screen, "sync")
+    assert ssync["me"] is None and "muted" not in ssync and len(ssync["categories"]) == 5, ssync.keys()
+    await screen.send(json.dumps({"type": "vote", "ci": 0, "li": 0}))  # spectators cannot act
+    await screen.send(json.dumps({"type": "start_vote"}))
+    print("screen sync: ok, phase =", ssync["phase"])
     await host.send(json.dumps({"type": "reset_game"}))
     await host.send(json.dumps({"type": "chat_settings", "enabled": True, "slow": 0}))
 

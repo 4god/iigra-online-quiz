@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ИИгра — экран трансляции</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  [hidden]{display:none !important;}
+  html,body{height:100%;overflow:hidden;}
+  body{display:flex;align-items:center;justify-content:center;background:#04060d;min-height:0;}
+
+  /* Fixed 1920×1080 canvas, scaled to the window: pixel-identical in OBS and in any browser. */
+  .stage{
+    flex:none;width:1920px;height:1080px;position:relative;transform-origin:center center;overflow:hidden;
+    display:grid;grid-template-columns:minmax(0,1fr) 500px;grid-template-rows:96px minmax(0,1fr);gap:28px;
+    padding:36px 48px 44px;
+    background:
+      radial-gradient(1200px 600px at 82% -10%, rgba(255,79,166,.12), transparent 60%),
+      radial-gradient(1000px 700px at -10% 110%, rgba(57,242,164,.09), transparent 55%),
+      var(--bg);
+  }
+
+  /* ---------- header ---------- */
+  .top{grid-column:1 / -1;display:flex;align-items:center;gap:32px;}
+  .top .mark{font-family:"Unbounded",sans-serif;font-weight:900;font-size:56px;line-height:1;}
+  .top .mark span{color:var(--mint);}
+  .top .sub{font-size:18px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.14em;font-weight:800;margin-top:8px;}
+  .status{
+    margin-left:auto;margin-right:auto;font-family:"Unbounded",sans-serif;font-weight:700;font-size:32px;
+    padding:16px 34px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid var(--card-edge);
+    max-width:1120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .status.hot{background:rgba(57,242,164,.12);border-color:rgba(57,242,164,.45);color:var(--mint);}
+  .status.wait{color:var(--focus);border-color:rgba(255,209,102,.4);background:rgba(255,209,102,.08);}
+  .online{text-align:right;font-weight:800;font-size:22px;color:var(--ink-dim);line-height:1.35;}
+  .online b{font-family:"JetBrains Mono",monospace;color:var(--ink);font-size:30px;}
+
+  .main{min-height:0;display:flex;flex-direction:column;}
+  .side{min-height:0;display:flex;flex-direction:column;gap:24px;}
+  .card{background:var(--card);border:1px solid var(--card-edge);border-radius:28px;}
+
+  /* ---------- board ---------- */
+  .board{flex:1;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:18px;}
+  .col{display:grid;grid-template-rows:96px repeat(5,minmax(0,1fr));gap:14px;min-height:0;}
+  .cat{
+    display:flex;align-items:center;justify-content:center;text-align:center;padding:0 10px;
+    font-family:"Unbounded",sans-serif;font-weight:700;font-size:22px;line-height:1.2;color:var(--ink);
+    background:rgba(255,255,255,.04);border:1px solid var(--card-edge);border-radius:20px;
+  }
+  .tile{
+    position:relative;overflow:hidden;border-radius:20px;background:var(--tile);
+    display:flex;align-items:center;justify-content:center;
+    font-family:"Unbounded",sans-serif;font-weight:800;font-size:58px;color:#fff;
+    box-shadow:inset 0 -6px 0 rgba(0,0,0,.18);
+  }
+  .tile.used{background:var(--tile-used);color:var(--tile-used-ink);box-shadow:none;font-size:44px;}
+  .tile .fill{position:absolute;left:0;right:0;bottom:0;background:rgba(57,242,164,.38);transition:height .5s ease;}
+  .tile .num{position:relative;}
+  .tile .pct{position:absolute;right:14px;bottom:10px;font-family:"JetBrains Mono",monospace;font-size:24px;font-weight:700;color:#eafff6;}
+  .tile.winner{background:var(--mint);color:#06281a;animation:pulse 1.2s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(57,242,164,.6);}50%{box-shadow:0 0 0 18px rgba(57,242,164,0);}}
+
+  /* ---------- question ---------- */
+  .qcard{flex:1;display:flex;flex-direction:column;gap:30px;padding:44px 52px;min-height:0;}
+  .qmeta{display:flex;align-items:center;gap:18px;}
+  .chip{font-family:"Unbounded",sans-serif;font-weight:700;font-size:26px;padding:10px 24px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--card-edge);}
+  .chip.pts{background:var(--tile);border-color:transparent;}
+  .qtext{font-family:"Unbounded",sans-serif;font-weight:700;line-height:1.25;flex:1;min-height:0;display:flex;align-items:center;}
+  .qtext.s1{font-size:58px;} .qtext.s2{font-size:50px;} .qtext.s3{font-size:43px;} .qtext.s4{font-size:37px;}
+  .opts{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  .opt{
+    position:relative;overflow:hidden;display:flex;align-items:center;gap:22px;padding:24px 28px;min-height:120px;
+    border-radius:22px;background:rgba(255,255,255,.04);border:2px solid var(--card-edge);font-size:34px;font-weight:800;
+  }
+  .opt .fill{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.06);transition:width .6s ease;}
+  .opt .let{position:relative;flex:none;width:64px;height:64px;border-radius:16px;display:flex;align-items:center;justify-content:center;
+    font-family:"Unbounded",sans-serif;font-size:30px;background:var(--tile);color:#fff;}
+  .opt .txt{position:relative;flex:1;line-height:1.2;}
+  .opt .cnt{position:relative;flex:none;font-family:"JetBrains Mono",monospace;font-size:30px;color:var(--ink-dim);}
+  .opt.right{border-color:var(--good);background:rgba(57,242,164,.10);color:var(--good);}
+  .opt.right .fill{background:rgba(57,242,164,.22);}
+  .opt.right .let{background:var(--good);color:#06281a;}
+  .opt.right .cnt{color:var(--good);}
+  .opt.dim{opacity:.55;}
+  .qfoot{display:flex;align-items:center;gap:28px;font-size:30px;font-weight:800;color:var(--ink-dim);}
+  .bar{flex:1;height:18px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden;}
+  .bar i{display:block;height:100%;background:var(--mint);border-radius:999px;transition:width .25s linear;}
+  .bar.late i{background:var(--pink);}
+  .secs{font-family:"JetBrains Mono",monospace;font-size:52px;color:var(--ink);min-width:110px;text-align:right;}
+  .qfoot .ans b{font-family:"JetBrains Mono",monospace;color:var(--ink);}
+  .verdict{font-size:34px;font-weight:800;color:var(--ink);}
+  .verdict b{color:var(--good);font-family:"JetBrains Mono",monospace;}
+
+  /* ---------- final ---------- */
+  .final{flex:1;display:flex;flex-direction:column;padding:44px 56px;gap:26px;min-height:0;}
+  .final h2{margin:0;font-family:"Unbounded",sans-serif;font-weight:900;font-size:64px;}
+  .final h2 span{color:var(--mint);}
+  .final .meta{font-size:26px;color:var(--ink-dim);font-weight:700;}
+  .podium{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:22px;align-items:end;}
+  .pod{border-radius:26px;padding:26px 24px;text-align:center;background:rgba(255,255,255,.05);border:1px solid var(--card-edge);}
+  .pod .place{font-family:"Unbounded",sans-serif;font-weight:900;font-size:56px;}
+  .pod .who{font-size:34px;font-weight:800;margin-top:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .pod .sc{font-family:"JetBrains Mono",monospace;font-size:34px;color:var(--mint);margin-top:6px;}
+  .pod.p1{background:rgba(57,242,164,.12);border-color:rgba(57,242,164,.5);padding:40px 24px;}
+  .pod.p1 .place{color:var(--mint);font-size:72px;}
+  .rest{display:grid;grid-template-columns:1fr 1fr;gap:12px 40px;font-size:28px;font-weight:800;}
+  .rest div{display:flex;gap:16px;padding:10px 0;border-bottom:1px solid var(--card-edge);}
+  .rest .r{color:var(--ink-faint);font-family:"JetBrains Mono",monospace;min-width:58px;}
+  .rest .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rest .s{font-family:"JetBrains Mono",monospace;color:var(--mint);}
+
+  /* ---------- sidebar ---------- */
+  .lb{flex:1;min-height:0;padding:28px 30px;display:flex;flex-direction:column;gap:14px;}
+  .lb h3{margin:0 0 6px;font-family:"Unbounded",sans-serif;font-size:30px;font-weight:800;display:flex;align-items:baseline;gap:12px;}
+  .lb h3 small{font-family:"Manrope",sans-serif;font-size:20px;color:var(--ink-faint);font-weight:700;}
+  .row{display:flex;align-items:center;gap:16px;font-size:25px;font-weight:800;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+  .row .r{width:52px;color:var(--ink-faint);font-family:"JetBrains Mono",monospace;}
+  .row .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .row .s{font-family:"JetBrains Mono",monospace;color:var(--mint);}
+  .row.r1 .r{color:var(--mint);}
+  .empty{color:var(--ink-faint);font-size:24px;font-weight:700;}
+  .join{padding:24px 26px;display:flex;gap:22px;align-items:center;}
+  .join img{width:190px;height:190px;border-radius:14px;background:#fff;padding:8px;flex:none;}
+  .join .t1{font-family:"Unbounded",sans-serif;font-weight:800;font-size:26px;}
+  .join .url{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:21px;color:var(--mint);margin-top:12px;word-break:break-all;}
+  .join .t2{font-size:19px;color:var(--ink-dim);font-weight:700;margin-top:10px;line-height:1.35;}
+
+  .conn{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);font-size:18px;font-weight:700;color:var(--focus);}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <header class="top">
+    <div>
+      <div class="mark">ИИ<span>гра</span></div>
+      <div class="sub">«Своя игра» про ИИ</div>
+    </div>
+    <div class="status" id="status">Подключаемся…</div>
+    <div class="online">в игре <b id="online">0</b><br>зарегистрировано <b id="registered">0</b></div>
+  </header>
+
+  <main class="main">
+    <div class="board" id="board"></div>
+
+    <section class="card qcard" id="qView" hidden>
+      <div class="qmeta"><span class="chip" id="qCat"></span><span class="chip pts" id="qPts"></span></div>
+      <div class="qtext" id="qText"></div>
+      <div class="opts" id="qOpts"></div>
+      <div class="qfoot" id="qFoot"></div>
+    </section>
+
+    <section class="card final" id="finalView" hidden>
+      <h2>Итоги <span>игры</span></h2>
+      <div class="meta" id="finalMeta"></div>
+      <div class="podium" id="podium"></div>
+      <div class="rest" id="rest"></div>
+    </section>
+  </main>
+
+  <aside class="side">
+    <section class="card lb">
+      <h3>Лидеры <small id="lbMeta"></small></h3>
+      <div id="lbList"></div>
+    </section>
+    <section class="card join">
+      <img id="qr" src="/qr" alt="QR-код для входа в игру">
+      <div>
+        <div class="t1">Играйте с нами</div>
+        <div class="url" id="joinUrl"></div>
+        <div class="t2">Наведите камеру на код. Регистрация — минута, имя и телефон не нужны.</div>
+      </div>
+    </section>
+  </aside>
+
+  <div class="conn" id="conn" hidden>Связь потеряна — переподключаемся…</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var LETTERS = ["А","Б","В","Г"];
+  var MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+  function $(id){ return document.getElementById(id); }
+  function el(tag, cls, text){ var e = document.createElement(tag); if(cls) e.className = cls; if(text !== undefined) e.textContent = text; return e; }
+  function who(r){ return r.name || "#" + r.id; }
+  function plural(n, one, few, many){ var a = n % 10, b = n % 100; return (a === 1 && b !== 11) ? one : (a >= 2 && a <= 4 && (b < 12 || b > 14)) ? few : many; }
+
+  var S = {
+    phase: "idle", used: {}, current: null, vote: null, voteWinner: null, lastReveal: null,
+    top: [], participants: 0, online: 0, registered: 0, categories: [], points: [100,200,300,400,500],
+    qSeconds: 30, offset: 0, liveOpen: true, liveOpensAt: 0, answered: 0
+  };
+
+  // ---------------------------------------------------- scaling
+  function fit(){
+    var s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    $("stage").style.transform = "scale(" + s + ")";
+  }
+  window.addEventListener("resize", fit);
+  fit();
+  $("joinUrl").textContent = location.host;
+
+  // ---------------------------------------------------- rendering
+  function serverNow(){ return Date.now() / 1000 + S.offset; }
+
+  function tileName(key){
+    var p = String(key || "").split("-"), ci = +p[0], li = +p[1];
+    return (S.categories[ci] || "") + " за " + (S.points[li] || "");
+  }
+
+  function setStatus(text, kind){
+    var s = $("status");
+    s.textContent = text;
+    s.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function renderStatus(){
+    if(!S.liveOpen && S.liveOpensAt){
+      var d = new Date(S.liveOpensAt * 1000);
+      return setStatus("Игра начнётся " + d.getDate() + " " + MONTHS[d.getMonth()], "wait");
+    }
+    switch(S.phase){
+      case "voting": return setStatus("Голосуйте: какой вопрос открыть?", "hot");
+      case "question": return setStatus("Отвечайте в игре!", "hot");
+      case "locked": return setStatus("Время вышло");
+      case "revealed": return setStatus("Правильный ответ");
+      case "finished": return setStatus("Игра окончена");
+      default: return setStatus(S.voteWinner ? "Выбран: " + tileName(S.voteWinner) : "Скоро выберем вопрос");
+    }
+  }
+
+  function renderBoard(){
+    var b = $("board");
+    b.innerHTML = "";
+    var tallies = (S.phase === "voting" && S.vote) ? S.vote.tallies || {} : {};
+    var total = (S.phase === "voting" && S.vote) ? S.vote.total || 0 : 0;
+    S.categories.forEach(function(name, ci){
+      var col = el("div", "col");
+      col.appendChild(el("div", "cat", name));
+      S.points.forEach(function(pts, li){
+        var key = ci + "-" + li, used = !!S.used[key];
+        var t = el("div", "tile" + (used ? " used" : "") + (!used && key === S.voteWinner && S.phase === "idle" ? " winner" : ""));
+        if(!used && total){
+          var n = tallies[key] || 0, pct = Math.round(n / total * 100);
+          var f = el("div", "fill"); f.style.height = pct + "%"; t.appendChild(f);
+          if(n) t.appendChild(el("span", "pct", pct + "%"));
+        }
+        t.appendChild(el("span", "num", used ? "—" : pts));
+        col.appendChild(t);
+      });
+      b.appendChild(col);
+    });
+  }
+
+  function sizeClass(text){
+    var n = text.length;
+    return n < 80 ? "s1" : n < 140 ? "s2" : n < 210 ? "s3" : "s4";
+  }
+
+  function renderQuestion(){
+    var rv = S.phase === "revealed" ? S.lastReveal : null;
+    var q = rv ? rv.question : S.current;
+    if(!q) return;
+    $("qCat").textContent = q.category;
+    $("qPts").textContent = q.points;
+    $("qText").textContent = q.q;
+    $("qText").className = "qtext " + sizeClass(q.q);
+
+    var opts = $("qOpts");
+    opts.innerHTML = "";
+    q.options.forEach(function(text, i){
+      var o = el("div", "opt");
+      if(rv){
+        var n = rv.dist[i] || 0, pct = rv.answered ? Math.round(n / rv.answered * 100) : 0;
+        o.className = "opt " + (i === rv.correct ? "right" : "dim");
+        var f = el("div", "fill"); f.style.width = pct + "%"; o.appendChild(f);
+        o.appendChild(el("span", "let", LETTERS[i]));
+        o.appendChild(el("span", "txt", text));
+        o.appendChild(el("span", "cnt", pct + "%"));
+      } else {
+        o.appendChild(el("span", "let", LETTERS[i]));
+        o.appendChild(el("span", "txt", text));
+      }
+      opts.appendChild(o);
+    });
+
+    var foot = $("qFoot");
+    foot.innerHTML = "";
+    if(rv){
+      var pct = rv.answered ? Math.round(rv.correct_count / rv.answered * 100) : 0;
+      var v = el("div", "verdict");
+      v.appendChild(document.createTextNode("Верно ответили "));
+      v.appendChild(el("b", "", rv.correct_count + " из " + rv.answered));
+      v.appendChild(document.createTextNode(" (" + pct + "%)"));
+      foot.appendChild(v);
+    } else {
+      var ans = el("div", "ans");
+      ans.appendChild(document.createTextNode("Ответили: "));
+      ans.appendChild(el("b", "", String(S.answered)));
+      foot.appendChild(ans);
+      var bar = el("div", "bar"); bar.id = "tBar"; bar.appendChild(el("i"));
+      foot.appendChild(bar);
+      var secs = el("div", "secs"); secs.id = "tSecs";
+      foot.appendChild(secs);
+      tickTimer();
+    }
+  }
+
+  function tickTimer(){
+    if(S.phase !== "question" && S.phase !== "locked") return;
+    var bar = $("tBar"), secs = $("tSecs");
+    if(!bar || !S.current) return;
+    var left = Math.max(0, S.current.deadline - serverNow());
+    if(S.phase === "locked") left = 0;
+    bar.firstChild.style.width = (left / S.qSeconds * 100) + "%";
+    bar.className = "bar" + (left <= 5 ? " late" : "");
+    secs.textContent = left > 0 ? Math.ceil(left) : "0";
+  }
+  setInterval(tickTimer, 200);
+
+  function renderFinal(){
+    var top = S.top;
+    $("finalMeta").textContent = S.participants + " " + plural(S.participants, "участник", "участника", "участников") + " · спасибо, что играли!";
+    var pod = $("podium");
+    pod.innerHTML = "";
+    [1, 0, 2].forEach(function(i){
+      var r = top[i];
+      if(!r){ pod.appendChild(el("div")); return; }
+      var p = el("div", "pod p" + (i + 1));
+      p.appendChild(el("div", "place", (i + 1) + ""));
+      p.appendChild(el("div", "who", who(r)));
+      p.appendChild(el("div", "sc", r.score + ""));
+      pod.appendChild(p);
+    });
+    var rest = $("rest");
+    rest.innerHTML = "";
+    top.slice(3, 13).forEach(function(r, i){
+      var d = el("div");
+      d.appendChild(el("span", "r", (i + 4) + "."));
+      d.appendChild(el("span", "n", who(r)));
+      d.appendChild(el("span", "s", r.score + ""));
+      rest.appendChild(d);
+    });
+  }
+
+  function renderLeaders(){
+    var list = $("lbList");
+    list.innerHTML = "";
+    $("lbMeta").textContent = S.participants ? S.participants + " " + plural(S.participants, "участник", "участника", "участников") : "";
+    if(!S.top.length){ list.appendChild(el("div", "empty", "Пока никто не набрал очков")); return; }
+    S.top.slice(0, 10).forEach(function(r, i){
+      var row = el("div", "row" + (i === 0 ? " r1" : ""));
+      row.appendChild(el("span", "r", (i + 1) + "."));
+      row.appendChild(el("span", "n", who(r)));
+      row.appendChild(el("span", "s", r.score + ""));
+      list.appendChild(row);
+    });
+  }
+
+  function renderAll(){
+    var showQ = (S.phase === "question" || S.phase === "locked") && S.current || (S.phase === "revealed" && S.lastReveal);
+    var showFinal = S.phase === "finished";
+    $("board").hidden = !!(showQ || showFinal);
+    $("qView").hidden = !showQ;
+    $("finalView").hidden = !showFinal;
+    if(showFinal) renderFinal();
+    else if(showQ) renderQuestion();
+    else renderBoard();
+    renderStatus();
+    renderLeaders();
+    $("online").textContent = S.online;
+    $("registered").textContent = S.registered;
+  }
+
+  // ---------------------------------------------------- live data
+  function onMessage(m){
+    switch(m.type){
+      case "sync":
+        S.phase = m.phase; S.used = m.used || {}; S.current = m.current; S.vote = m.vote;
+        S.voteWinner = m.vote_winner; S.lastReveal = m.last_reveal; S.top = m.top || []; S.participants = m.participants;
+        S.online = m.online; S.registered = m.registered; S.categories = m.categories || []; S.points = m.points || S.points;
+        S.qSeconds = m.question_seconds || 30; S.offset = m.server_now - Date.now() / 1000;
+        S.liveOpen = m.live_open; S.liveOpensAt = m.live_opens_at; S.answered = m.current ? m.current.answered || 0 : 0;
+        break;
+      case "stats": S.online = m.online; S.registered = m.registered; break;
+      case "vote_started": S.phase = "voting"; S.vote = {tallies: {}, total: 0}; S.voteWinner = null; S.lastReveal = null; break;
+      case "vote_tallies": if(S.phase === "voting") S.vote = {tallies: m.tallies, total: m.total}; break;
+      case "vote_ended": S.phase = "idle"; S.vote = null; S.voteWinner = m.winner; break;
+      case "question_opened":
+        S.phase = "question"; S.current = m.data; S.voteWinner = null; S.vote = null; S.lastReveal = null;
+        S.answered = m.data.answered || 0; S.offset = m.server_now - Date.now() / 1000;
+        break;
+      case "answer_count": S.answered = m.count; S.online = m.online;
+        if(S.phase === "question" || S.phase === "locked"){ var a = document.querySelector(".ans b"); if(a) a.textContent = m.count; }
+        return;
+      case "time_up": S.phase = "locked"; break;
+      case "cancelled": S.phase = "idle"; S.current = null; break;
+      case "revealed":
+        S.phase = "revealed"; S.lastReveal = m; S.used = m.used; S.top = m.top; S.participants = m.participants; S.current = null;
+        break;
+      case "finished": S.phase = "finished"; S.top = m.top; S.participants = m.participants; break;
+      default: return;   // chat, settings, notices: not shown on the broadcast screen
+    }
+    renderAll();
+  }
+
+  var ws = null, retry = 1000;
+  function connect(){
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+    ws.onopen = function(){ retry = 1000; $("conn").hidden = true; ws.send(JSON.stringify({type: "watch"})); };
+    ws.onmessage = function(e){ try { onMessage(JSON.parse(e.data)); } catch(err){} };
+    ws.onclose = function(){
+      $("conn").hidden = false;
+      setTimeout(connect, retry);
+      retry = Math.min(retry * 2, 8000);
+    };
+  }
+  setInterval(function(){ if(ws && ws.readyState === 1) ws.send('{"type":"ping"}'); }, 25000);
+  connect();
+})();
+</script>
+</body>
+</html>
