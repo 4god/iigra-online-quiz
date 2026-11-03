@@ -11,3 +11,4 @@ data/
 *.db-shm
 live_questions.csv
 media/
+test_questions.csv

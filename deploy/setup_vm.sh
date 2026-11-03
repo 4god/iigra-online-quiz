@@ -5,13 +5,15 @@
 #   sudo bash setup_vm.sh --host-key МОЙКЛЮЧ [--domain game.example.ru] [--ip 1.2.3.4] [--no-https]
 #                         [--opens-at 2026-11-12T19:00:00+03:00] [--live-questions /path/live_questions.csv]
 #                         [--media /path/media]   — папка с картинками и видео к вопросам
+#                         [--name iigra-test --port 8001]   — вторая, независимая копия игры на той же машине
+#                                                             (своя база, свой ключ, свой адрес через --domain)
 #
 # Повторный запуск безопасен: обновит код и перезапустит сервис, база игроков сохранится.
 set -euo pipefail
 
 REPO="https://github.com/4god/iigra-online-quiz.git"
-APP_DIR=/opt/iigra
-DATA_DIR=/var/lib/iigra
+NAME=iigra
+PORT=8000
 HOST_KEY=""
 DOMAIN=""
 HTTPS=1
@@ -29,19 +31,27 @@ while [[ $# -gt 0 ]]; do
     --live-questions) LIVE_FILE="$2"; shift 2 ;;
     --media) MEDIA_SRC="$2"; shift 2 ;;
     --ip) PUBLIC_IP="$2"; shift 2 ;;
+    --name) NAME="$2"; shift 2 ;;
+    --port) PORT="$2"; shift 2 ;;
     *) echo "Неизвестный параметр: $1"; exit 1 ;;
   esac
 done
 
 [[ $EUID -eq 0 ]] || { echo "Запустите через sudo"; exit 1; }
 [[ -n "$HOST_KEY" ]] || { echo "Укажите ключ ведущего: --host-key КЛЮЧ"; exit 1; }
+[[ "$NAME" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "--name: латинские буквы, цифры и дефис"; exit 1; }
+[[ "$PORT" =~ ^[0-9]+$ ]] || { echo "--port: число"; exit 1; }
+
+APP_DIR=/opt/$NAME
+DATA_DIR=/var/lib/$NAME
+ENV_FILE=/etc/$NAME.env
 
 echo "==> Пакеты"
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-pip git curl ufw sqlite3 jq >/dev/null
 if [[ $HTTPS -eq 1 ]]; then apt-get install -y -qq caddy >/dev/null; fi
 
-echo "==> Код"
+echo "==> Код ($APP_DIR)"
 if [[ -d "$APP_DIR/.git" ]]; then
   git -c safe.directory="$APP_DIR" -C "$APP_DIR" pull -q
 else
@@ -67,33 +77,32 @@ python3 -m venv "$APP_DIR/.venv"
 echo "==> Проверка таблиц с вопросами"
 (cd "$APP_DIR" && .venv/bin/python tools/check_questions.py)
 
-id iigra >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin iigra
+id iigra >/dev/null 2>&1 || useradd --system --home /var/lib/iigra --shell /usr/sbin/nologin iigra
 mkdir -p "$DATA_DIR"
 chown -R iigra:iigra "$DATA_DIR"
 chown -R iigra:iigra "$APP_DIR"
 
-echo "==> Настройки (/etc/iigra.env)"
+echo "==> Настройки ($ENV_FILE)"
 {
   echo "HOST_KEY=$HOST_KEY"
   echo "DATA_DIR=$DATA_DIR"
   echo "QUESTION_SECONDS=30"
   if [[ -n "$OPENS_AT" ]]; then echo "LIVE_OPENS_AT=$OPENS_AT"; fi
-} > /etc/iigra.env
-chmod 600 /etc/iigra.env
+} > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
 
-PORT=8000
 BIND=127.0.0.1
 if [[ $HTTPS -eq 0 ]]; then BIND=0.0.0.0; PORT=80; fi
 
-cat > /etc/systemd/system/iigra.service <<EOF
+cat > /etc/systemd/system/$NAME.service <<EOF
 [Unit]
-Description=ИИгра
+Description=ИИгра ($NAME)
 After=network-online.target
 
 [Service]
 User=iigra
 WorkingDirectory=$APP_DIR
-EnvironmentFile=/etc/iigra.env
+EnvironmentFile=$ENV_FILE
 ExecStart=$APP_DIR/.venv/bin/uvicorn server:app --host $BIND --port $PORT --proxy-headers --forwarded-allow-ips 127.0.0.1 --log-level warning
 Restart=always
 RestartSec=2
@@ -105,8 +114,8 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable -q iigra
-systemctl restart iigra
+systemctl enable -q "$NAME"
+systemctl restart "$NAME"
 
 echo "==> Фаервол: открыты только SSH, HTTP и HTTPS"
 ufw allow 22/tcp >/dev/null
@@ -129,15 +138,18 @@ if [[ -z "$IP" && -z "$DOMAIN" ]]; then
 fi
 if [[ $HTTPS -eq 1 ]]; then
   [[ -n "$DOMAIN" ]] || DOMAIN="${IP//./-}.sslip.io"
+  # One file per copy of the game, so a second copy does not overwrite the first one's address.
+  install -d /etc/caddy/sites
+  echo "import /etc/caddy/sites/*.caddy" > /etc/caddy/Caddyfile
   # Access log for visit stats. Visitor IPs are stored only as hashes: unique visitors
   # can be counted, the addresses themselves are not kept.
   install -d -o caddy -g caddy /var/log/caddy
-  cat > /etc/caddy/Caddyfile <<EOF
+  cat > /etc/caddy/sites/$NAME.caddy <<EOF
 $DOMAIN {
     encode gzip
     reverse_proxy 127.0.0.1:$PORT
     log {
-        output file /var/log/caddy/iigra-access.log {
+        output file /var/log/caddy/$NAME-access.log {
             roll_size 20MiB
             roll_keep 10
         }
@@ -152,21 +164,23 @@ $DOMAIN {
 }
 EOF
   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
-  systemctl restart caddy
+  systemctl reload caddy || systemctl restart caddy
   URL="https://$DOMAIN"
 else
   URL="http://$IP"
 fi
 
 sleep 3
-systemctl is-active --quiet iigra && echo "==> Сервис запущен" || { journalctl -u iigra -n 30 --no-pager; exit 1; }
+systemctl is-active --quiet "$NAME" && echo "==> Сервис $NAME запущен" || { journalctl -u "$NAME" -n 30 --no-pager; exit 1; }
 cat <<EOF
 
 Готово.
   Игроки:   $URL/
   Ведущий:  $URL/host   (ключ: $HOST_KEY)
   Проверка: $URL/verify
+  Эфир:     $URL/screen
   База:     $DATA_DIR/iigra.db
+  Сводка:   iigra-stats $NAME
 
 Если HTTPS не открывается в первые пару минут — Caddy ещё получает сертификат:
   journalctl -u caddy -n 50 --no-pager
