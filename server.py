@@ -46,7 +46,8 @@ MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", BASE_DIR / "media"))  # pictures an
 MEDIA_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.(jpe?g|png|gif|webp|mp4|webm)", re.IGNORECASE)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-QUESTION_SECONDS = int(os.environ.get("QUESTION_SECONDS", 30))
+# Seconds to answer a broadcast question; 0 (the default) means no timer: answers are taken until the host reveals.
+QUESTION_SECONDS = max(0, int(os.environ.get("QUESTION_SECONDS", 0)))
 # The final question: everyone bets part of their score after seeing only its theme.
 WAGER_SECONDS = int(os.environ.get("WAGER_SECONDS", 30))
 # Players can't join the broadcast (vote, answer, chat) before this moment.
@@ -134,11 +135,14 @@ def public_question(board, ci, li):
 
 db = DB(DATA_DIR / "iigra.db")
 
+_user_rows = db.all_users()
 players = {
     r["id"]: {"name": r["login"], "score": r["score"], "time": r["time"], "answered": r["answered"],
               "streak": r["streak"], "muted": bool(r["muted"])}
-    for r in db.all_users()
+    for r in _user_rows
 }
+saved_place = {r["id"]: r["place"] for r in _user_rows if r["place"] is not None}  # what users.place holds now
+del _user_rows
 sessions = {r["token"]: r["user_id"] for r in db.all_sessions()}
 
 settings = {"chat_enabled": True, "slow": 5, "solo_open": False}
@@ -147,7 +151,7 @@ settings.update(db.get_kv("settings", {}))
 game = {
     "phase": "idle",          # idle | voting | wager | question | locked | revealed | finished
     "used": db.get_kv("used", {}),
-    "current": None,          # {ci, li, opened, deadline, answers: {uid: (option, seconds)}, final}
+    "current": None,          # {ci, li, opened, deadline (None: no timer), answers: {uid: (option, seconds)}, final}
     "vote": None,             # {votes: {uid: key}, tallies: {key: n}, level: row index or None}
     "final": None,            # {ci, li, deadline, closed, wagers: {uid: amount}} from the wager until the reveal
     "vote_winner": None,
@@ -169,6 +173,21 @@ def recompute_ranks():
     rows.sort(key=lambda r: (-r[1]["score"], r[1]["time"], r[0]))
     ranked = rows
     rank_of = {uid: i + 1 for i, (uid, _) in enumerate(rows)}
+    save_places()
+
+
+def save_places():
+    """Keep users.place equal to the leaderboard place; NULL for whoever hasn't answered yet. Writes only changes."""
+    changes = [(place, uid) for uid, place in rank_of.items() if saved_place.get(uid) != place]
+    changes += [(None, uid) for uid in saved_place if uid not in rank_of]
+    if not changes:
+        return
+    db.save_places(changes)
+    for place, uid in changes:
+        if place is None:
+            saved_place.pop(uid, None)
+        else:
+            saved_place[uid] = place
 
 
 def top(n):
@@ -558,7 +577,8 @@ def open_question(ci, li, final=False):
         vote_winner=None,
         last_reveal=None,
         last_results={},
-        current={"ci": ci, "li": li, "opened": t, "deadline": t + QUESTION_SECONDS, "answers": {}, "final": final},
+        current={"ci": ci, "li": li, "opened": t, "deadline": t + QUESTION_SECONDS if QUESTION_SECONDS else None,
+                 "answers": {}, "final": final},
     )
     broadcast({"type": "question_opened", "data": public_current(), "server_now": t})
 
@@ -627,7 +647,7 @@ def submit_answer(uid, option):
     if not isinstance(option, int) or not 0 <= option <= 3:
         return
     t = now()
-    if t > c["deadline"] or uid in c["answers"]:
+    if (c["deadline"] and t > c["deadline"]) or uid in c["answers"]:
         return
     c["answers"][uid] = (option, round(t - c["opened"], 3))
     dirty["answers"] = True
@@ -775,7 +795,8 @@ def tick():
             dirty["wagers"], last_sent["wagers"] = False, t
         if not f["closed"] and t >= f["deadline"]:
             close_wagers()
-    if game["phase"] == "question" and game["current"] and t >= game["current"]["deadline"]:
+    c = game["current"]
+    if game["phase"] == "question" and c and c["deadline"] and t >= c["deadline"]:
         game["phase"] = "locked"
         broadcast({"type": "time_up"})
     if game["finish_at"] and t >= game["finish_at"]:

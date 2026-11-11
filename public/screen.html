@@ -388,6 +388,7 @@
       var ans = el("div", "ans");
       ans.appendChild(document.createTextNode("Ответили: "));
       ans.appendChild(el("b", "", String(S.answered)));
+      if(!S.current.deadline && S.online) ans.appendChild(el("span", "of", " из " + S.online));
       foot.appendChild(ans);
       var bar = el("div", "bar"); bar.id = "tBar"; bar.appendChild(el("i"));
       foot.appendChild(bar);
@@ -404,6 +405,13 @@
     if(S.phase !== "question" && S.phase !== "locked") return;
     var bar = $("tBar"), secs = $("tSecs");
     if(!bar || !S.current) return;
+    if(!S.current.deadline){
+      // No timer: the bar shows how many of the players online have answered.
+      bar.firstChild.style.width = (S.online ? Math.min(1, S.answered / S.online) * 100 : 0) + "%";
+      bar.className = "bar";
+      secs.textContent = "";
+      return;
+    }
     var left = Math.max(0, S.current.deadline - serverNow());
     if(S.phase === "locked") left = 0;
     bar.firstChild.style.width = (left / S.qSeconds * 100) + "%";
@@ -520,7 +528,11 @@
         S.answered = m.data.answered || 0; S.offset = m.server_now - Date.now() / 1000;
         break;
       case "answer_count": S.answered = m.count; S.online = m.online;
-        if(S.phase === "question" || S.phase === "locked"){ var a = document.querySelector(".ans b"); if(a) a.textContent = m.count; }
+        if(S.phase === "question" || S.phase === "locked"){
+          var a = document.querySelector(".ans b"); if(a) a.textContent = m.count;
+          var of = document.querySelector(".ans .of"); if(of) of.textContent = " из " + m.online;
+          tickTimer();
+        }
         return;
       case "time_up": S.phase = "locked"; break;
       case "cancelled": S.phase = "idle"; S.current = null; S.final = null; break;

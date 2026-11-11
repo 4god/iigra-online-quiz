@@ -200,6 +200,10 @@
   .chat-form input{flex:1;min-width:0;background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:10px;padding:10px 12px;font-size:15px;}
   .chat-form button{border-radius:10px;padding:0 14px;}
   .chat-hint{font-size:12px;color:var(--ink-faint);padding:0 12px 10px;}
+  .chat-call{
+    margin:0 10px;border:none;border-radius:10px;padding:11px 12px;cursor:pointer;
+    background:var(--mint);color:#04140d;font-weight:800;font-size:14px;text-align:center;
+  }
 
   /* ---------- self-paced ---------- */
   .solo-intro h2{font-family:"Unbounded",sans-serif;font-size:18px;margin:0 0 6px;}
@@ -243,7 +247,7 @@
   <div class="brand"><div class="mark" id="logo">ИИ<span>гра</span><span class="ml-badge">ML hardcore</span></div></div>
   <nav class="tabs" id="tabs" hidden>
     <button type="button" data-tab="home">Меню</button>
-    <button type="button" data-tab="live" id="liveTabBtn" class="active">Игра</button>
+    <button type="button" data-tab="live" id="liveTabBtn" class="active">Игра<span class="dot" id="liveDot" hidden></span></button>
     <button type="button" data-tab="chat" id="chatTabBtn" class="chat-tab">Чат<span class="dot" id="chatDot" hidden></span></button>
     <button type="button" data-tab="solo" id="soloTabBtn" hidden>Варианты</button>
   </nav>
@@ -394,6 +398,7 @@
     <div class="card chat-card">
       <div class="chat-head"><span>Чат игроков</span><span class="online" id="onlineLabel"></span></div>
       <div class="chat-list" id="chatList" aria-live="polite"></div>
+      <button class="chat-call" type="button" id="chatCall" hidden></button>
       <form class="chat-form" id="chatForm">
         <input id="chatInput" maxlength="200" placeholder="Сообщение" autocomplete="off">
         <button class="btn primary" type="submit" id="chatSend" aria-label="Отправить">➤</button>
@@ -618,6 +623,8 @@
     $("soloPane").classList.toggle("show", tab === "solo");
     $("chatPane").classList.toggle("show", tab === "chat");
     if(tab === "chat"){ $("chatDot").hidden = true; scrollChat(true); }
+    if(tab === "live") $("liveDot").hidden = true;
+    renderChatCall();
     if(tab === "solo") loadSolo();
     if(tab !== "solo") document.body.classList.remove("ml");
   }
@@ -681,22 +688,22 @@
         setOffset(m.server_now);
         S.phase = "question"; S.current = m.data; S.selected = null; S.committed = null; S.answered = 0;
         S.lastReveal = null; S.myResult = null; S.vote = null; S.voteWinner = null;
-        if(S.view === "app" && S.liveOpen && S.tab !== "live"){ setTab("live"); toast("Новый вопрос!"); }
+        if(S.view === "app" && S.liveOpen && S.tab !== "live"){ goLive("Новый вопрос!"); }
         else if(S.view === "home" && S.liveOpen) toast("На трансляции новый вопрос — присоединяйтесь!");
         renderLive(); break;
-      case "answer_ack": S.committed = m.option; renderQuestion(); break;
+      case "answer_ack": S.committed = m.option; renderQuestion(); renderChatCall(); break;
       case "answer_count": S.answered = m.count; renderQStatus(); break;
       case "time_up": if(S.phase === "question"){ S.phase = "locked"; renderQuestion(); } break;
       case "cancelled": S.phase = "idle"; S.current = null; S.final = null; renderLive(); toast("Ведущий отменил вопрос"); break;
       case "final_started":
         setOffset(m.server_now);
         S.phase = "wager"; S.final = m; S.myWager = null; S.lastReveal = null; S.vote = null; S.voteWinner = null;
-        if(S.view === "app" && S.liveOpen && S.tab !== "live"){ setTab("live"); }
-        if(S.liveOpen) toast("Финал! Сделайте ставку");
+        if(S.view === "app" && S.liveOpen && S.tab !== "live") goLive("Финал! Сделайте ставку");
+        else if(S.liveOpen) toast("Финал! Сделайте ставку");
         renderLive(); break;
-      case "wager_ack": S.myWager = m.amount; renderWager(); break;
+      case "wager_ack": S.myWager = m.amount; renderWager(); renderChatCall(); break;
       case "wager_count": if(S.final){ S.final.count = m.count; renderWager(); } break;
-      case "wager_closed": if(S.final){ S.final.closed = true; renderWager(); } break;
+      case "wager_closed": if(S.final){ S.final.closed = true; renderWager(); renderChatCall(); } break;
       case "revealed":
         S.phase = "revealed"; S.lastReveal = m; S.used = m.used; S.top = m.top; S.participants = m.participants;
         S.current = null; S.myResult = undefined; renderLive(); break;
@@ -732,7 +739,7 @@
 
   // ===================================================== rendering: live game
   function renderLive(){
-    renderBanner(); renderBoard(); renderWager(); renderQuestion(); renderMini(); renderFinal();
+    renderBanner(); renderBoard(); renderWager(); renderQuestion(); renderMini(); renderFinal(); renderChatCall();
   }
   function fmtMult(x){ return String(x).replace(".", ","); }
 
@@ -871,8 +878,9 @@
     $("qText").textContent = q.q;
     renderMedia(revealed ? (S.lastReveal.media_answer || q.media) : q.media);
 
-    $("timer").hidden = ph !== "question";
-    if(ph === "question") runTimer(S.current.deadline); else stopTimer();
+    var timed = ph === "question" && !!S.current.deadline;  // no deadline: answers are open until the host reveals
+    $("timer").hidden = !timed;
+    if(timed) runTimer(S.current.deadline); else stopTimer();
 
     var mine = revealed ? (S.myResult ? S.myResult.option : S.committed) : S.committed;
     var box = $("qOptions"); box.innerHTML = "";
@@ -1018,9 +1026,35 @@
     var ids = Object.keys(chatNodes).map(Number).sort(function(a, b){ return a - b; });
     while(ids.length > 200){ var id = ids.shift(); chatNodes[id].remove(); delete chatNodes[id]; }
     if(stick || silent) scrollChat(true);
-    if(!silent && msgs.length && S.tab !== "chat" && isMobile()) $("chatDot").hidden = false;
+    var others = msgs.some(function(m){ return m.uid !== S.uid; });  // your own message is not news
+    if(!silent && others && S.tab !== "chat" && isMobile()) $("chatDot").hidden = false;
   }
   function removeChat(ids){ ids.forEach(function(id){ if(chatNodes[id]){ chatNodes[id].remove(); delete chatNodes[id]; } }); }
+
+  // On a phone the chat is a separate tab. A new question used to switch tabs at once and cut off a message
+  // being typed; now a player who is typing stays in the chat and gets a button (and a dot on the game tab).
+  function chatTyping(){
+    var input = $("chatInput");
+    return document.activeElement === input || input.value.trim() !== "";
+  }
+  function goLive(text){
+    if(S.tab === "chat" && isMobile() && chatTyping()){ $("liveDot").hidden = false; renderChatCall(); return; }
+    setTab("live"); toast(text);
+  }
+  // What the player still has to do in the game, if anything.
+  function pendingAction(){
+    if(!S.liveOpen) return "";
+    if(S.phase === "question" && S.current && S.committed === null) return S.current.final ? "Финальный вопрос — ответить →" : "Открыт вопрос — ответить →";
+    if(S.phase === "wager" && S.final && !S.final.closed && (S.myWager === null || S.myWager === undefined)) return "Финал — сделать ставку →";
+    return "";
+  }
+  function renderChatCall(){
+    var call = $("chatCall"), text = S.tab === "chat" && isMobile() ? pendingAction() : "";
+    call.hidden = !text;
+    call.textContent = text;
+    if(!pendingAction()) $("liveDot").hidden = true;
+  }
+  $("chatCall").addEventListener("click", function(){ setTab("live"); });
 
   var chatCooldownUntil = 0, chatCooldownTimer = null;
   function renderChatForm(){
@@ -1039,6 +1073,8 @@
     if(!text || Date.now() / 1000 < chatCooldownUntil) return;
     send({type: "chat", text: text});
     $("chatInput").value = "";
+    // The message is sent: if a question is waiting for this player, take them to it.
+    if(isMobile() && S.tab === "chat" && pendingAction()){ $("chatInput").blur(); setTab("live"); }
     chatCooldownUntil = Date.now() / 1000 + (S.settings.slow || 0);
     clearInterval(chatCooldownTimer);
     chatCooldownTimer = setInterval(function(){

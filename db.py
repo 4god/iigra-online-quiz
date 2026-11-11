@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
     time REAL NOT NULL DEFAULT 0,
     answered INTEGER NOT NULL DEFAULT 0,
     streak INTEGER NOT NULL DEFAULT 0,
-    muted INTEGER NOT NULL DEFAULT 0
+    muted INTEGER NOT NULL DEFAULT 0,
+    place INTEGER  -- current place on the broadcast leaderboard; NULL until the first answer
 );
 CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
@@ -56,14 +57,15 @@ class DB:
         self.conn.executescript(SCHEMA)
         # Databases created by older versions: add the columns in place.
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(users)")}
-        for col, decl in (("login", "TEXT"), ("login_key", "TEXT"), ("streak", "INTEGER NOT NULL DEFAULT 0")):
+        for col, decl in (("login", "TEXT"), ("login_key", "TEXT"), ("streak", "INTEGER NOT NULL DEFAULT 0"),
+                          ("place", "INTEGER")):
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE users ADD COLUMN {col} {decl}")
         self.conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_login_key ON users (login_key)")
 
     # ------------------------------------------------------------ users
     def all_users(self):
-        return self.conn.execute("SELECT id, login, score, time, answered, streak, muted FROM users").fetchall()
+        return self.conn.execute("SELECT id, login, score, time, answered, streak, muted, place FROM users").fetchall()
 
     def create_user(self, uid, login, login_key, salt, pw):
         """Raises sqlite3.IntegrityError if the login is already taken."""
@@ -86,6 +88,12 @@ class DB:
         with self.conn:
             self.conn.execute("BEGIN")
             self.conn.executemany("UPDATE users SET score = ?, time = ?, answered = ?, streak = ? WHERE id = ?", rows)
+
+    def save_places(self, rows):
+        """rows: iterable of (place or None, uid)"""
+        with self.conn:
+            self.conn.execute("BEGIN")
+            self.conn.executemany("UPDATE users SET place = ? WHERE id = ?", rows)
 
     def reset_scores(self):
         self.conn.execute("UPDATE users SET score = 0, time = 0, answered = 0, streak = 0")

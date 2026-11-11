@@ -487,7 +487,15 @@
     $("qText").textContent = q.q;
     renderStageMedia(revealed ? (H.lastReveal.media_answer || q.media) : q.media);
     $("timerTrack").hidden = H.phase !== "question";
-    if(H.phase === "question") runTimer(H.current.deadline); else cancelAnimationFrame(timerRAF);
+    if(H.phase === "question" && H.current.deadline) runTimer(H.current.deadline);
+    else {
+      cancelAnimationFrame(timerRAF);
+      // No timer: the bar fills as players answer; reveal whenever you are ready.
+      if(H.phase === "question"){
+        $("timerFill").style.width = (H.online ? Math.min(1, H.answered / H.online) * 100 : 0) + "%";
+        $("timerFill").style.background = "var(--mint)";
+      }
+    }
 
     var grid = $("optGrid"); grid.innerHTML = "";
     q.options.forEach(function(text, idx){
@@ -510,7 +518,8 @@
         (rv.fastest ? " · быстрее всех " + whoName(rv.fastest.id, rv.fastest.name) + " (" + String(rv.fastest.seconds).replace(".", ",") + " с)" : "") +
         (rv.final ? " · ставки: выиграли " + rv.wager_won + ", проиграли " + rv.wager_lost : "");
     } else {
-      $("liveStat").textContent = "Ответили " + H.answered + " из " + H.online + (H.phase === "locked" ? " · время вышло" : "");
+      $("liveStat").textContent = "Ответили " + H.answered + " из " + H.online + (H.phase === "locked" ? " · время вышло" :
+        (H.current && !H.current.deadline ? " · таймера нет — откройте ответ, когда будете готовы" : ""));
     }
     var fact = revealed && H.lastReveal.fact;
     $("factNote").hidden = !fact;

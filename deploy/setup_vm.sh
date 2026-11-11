@@ -90,7 +90,7 @@ echo "==> Настройки ($ENV_FILE)"
 {
   echo "HOST_KEY=$HOST_KEY"
   echo "DATA_DIR=$DATA_DIR"
-  echo "QUESTION_SECONDS=30"
+  echo "QUESTION_SECONDS=0"  # 0 = без таймера: ответы принимаются, пока ведущий не покажет ответ
   if [[ -n "$OPENS_AT" ]]; then echo "LIVE_OPENS_AT=$OPENS_AT"; fi
 } > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
