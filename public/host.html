@@ -78,7 +78,7 @@
   .chat-form input{flex:1;min-width:0;background:var(--bg-deep);border:1px solid var(--card-edge);border-radius:10px;padding:9px 12px;font-size:14px;}
 
   .veil{position:fixed;inset:0;background:rgba(4,5,12,.88);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px;z-index:50;}
-  .stage{width:min(900px,100%);max-height:calc(100vh - 48px);overflow:auto;}
+  .stage{width:min(900px,100%);max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px);overflow:auto;}
   .pills{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;}
   .live-stat{margin-left:auto;font-family:"JetBrains Mono",monospace;font-size:14px;color:var(--ink-dim);}
   .timer-track{height:10px;border-radius:999px;background:var(--bg-deep);overflow:hidden;margin-bottom:16px;border:1px solid var(--card-edge);}
@@ -93,6 +93,14 @@
   .opt-cell.correct{background:rgba(57,242,164,.14);border-color:var(--good);color:var(--good);}
   .opt-cell.correct .fill{background:rgba(57,242,164,.18);}
   .action-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  /* Host on a phone: one answer per row so the "N · P%" counts fit, and the stage uses the whole screen. */
+  @media (max-width:600px){
+    .veil{padding:8px;align-items:flex-start;}
+    .stage{max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px);padding:16px;}
+    .opt-grid{grid-template-columns:1fr;gap:8px;}
+    .opt-cell{padding:11px 12px;}
+    .live-stat{margin-left:0;font-size:12px;}
+  }
 
   .final-title{font-family:"Unbounded",sans-serif;font-weight:900;font-size:clamp(26px,4vw,44px);margin:0 0 4px;}
   .final-sub{color:var(--ink-dim);margin:0 0 18px;}
